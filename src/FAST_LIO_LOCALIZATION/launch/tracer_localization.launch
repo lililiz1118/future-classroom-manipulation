@@ -1,0 +1,57 @@
+<launch>
+<!-- Launch file for Livox AVIA LiDAR -->
+
+	<arg name="rviz" default="true" />
+
+	<rosparam command="load" file="$(find fast_lio_localization)/config/mid360.yaml" />
+
+	<!-- fastlio -->
+	<param name="feature_extract_enable" type="bool" value="0"/>
+	<param name="point_filter_num" type="int" value="3"/>
+	<param name="max_iteration" type="int" value="3" />
+	<param name="filter_size_surf" type="double" value="0.5" />
+	<param name="filter_size_map" type="double" value="0.5" />
+	<param name="cube_side_length" type="double" value="1000" />
+	<param name="runtime_pos_log_enable" type="bool" value="0" />
+    <node pkg="fast_lio" type="fastlio_mapping" name="laserMapping" output="screen" /> 
+
+	<!-- loalization-->
+    <node pkg="fast_lio_localization" type="global_localization.py" name="global_localization" output="screen" />
+
+	<!-- transform  fusion-->
+    <node pkg="fast_lio_localization" type="transform_fusion.py" name="transform_fusion" output="screen" />
+
+	<!-- glbal map-->
+	<!-- 加载全局点云地图 -->
+	<arg name="map" default="/home/jt001/fastlio_ws/src/FAST_LIO/PCD/scans_11_15.pcd" />
+
+	<!-- <arg name="map" default="$(find fast_lio)/PCD/scans.pcd" /> -->
+    <node pkg="pcl_ros" type="pcd_to_pointcloud" name="map_publisher" output="screen"
+		  args="$(arg map) 5 _frame_id:=map cloud_pcd:=pcd_map" />
+
+	<!-- 发布从雷达坐标系到baselink的static tf -->
+	<node pkg="tf2_ros" type="static_transform_publisher" name="tf_body_to_baselink"
+		  args="-0.255 0 -0.022 0 0 0 body base_link" />
+
+    <node pkg="tf2_ros" type="static_transform_publisher" name="tf_odom_to_robotodom"
+		  args="-0.255 0 -0.022 0 0 0 odom robot_odom" />
+
+	<!-- <node pkg="tracer_nav" type="static_tf" name="static_tf" /> -->
+
+	<group if="$(arg rviz)">
+	<node launch-prefix="nice" pkg="rviz" type="rviz" name="rviz" args="-d $(find fast_lio_localization)/rviz_cfg/localization.rviz" />
+	</group>
+ 
+	<!-- load 2d map -->
+	<arg name="2dmap" default="map1.yaml" />
+	<!-- <node name = "map_server" pkg = "map_server" type = "map_server" args="/home/jt001/fastlio_ws/src/FAST_LIO/PCD/map1.yaml /map:=prior_map"/> -->
+	<node name = "map_server" pkg = "map_server" type = "map_server" args="/home/jt001/fastlio_ws/src/FAST_LIO/PCD/map2.yaml"/>
+
+	<!-- pointscloud2 to laserscans -->
+	<include file="$(find fast_lio_localization)/launch/PointsCloud2toLaserscan.launch">
+	</include>
+
+
+
+
+</launch>

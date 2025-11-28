@@ -1,0 +1,8 @@
+关于全局规划器路径：
+    使用global_planner包，见官网：https://wiki.ros.org/global_planner#Parameters
+    使用默认参数时，轨迹凸起较多，与官网图片出入较大，原因未知；
+    use_grid_path=True 时，路径将会走4联通道路，规划器行为正常，要改进可能只能从局部规划器入手；
+    此外，关于A*算法规划，“用 4 连通网格方格计算的，而通过追踪从目标到起点的电势梯度路径则使用了 8 连通的同一网格。因此，实际找到的路径在 8 连通意义上可能并非完全最优。”；
+
+    根据官网更改了全局规划器配置 https://github.com/NVIDIA-AI-IOT/turtlebot3/blob/master/turtlebot_apps/turtlebot_navigation/param/global_planner_params.yaml
+    建议尝试quadratic、dijkstra

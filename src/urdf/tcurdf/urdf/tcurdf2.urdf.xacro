@@ -1,0 +1,205 @@
+<?xml version="1.0" encoding="utf-8"?>
+<robot xmlns:xacro="http://wiki.ros.org/xacro" name="tcurdf">
+
+  <link name="base_link">
+    <inertial>
+      <origin xyz="-0.035108516814885 -0.00209027218200159 -0.049710792042142" rpy="0 0 0" />
+      <mass value="3.56953084649748" />
+      <inertia ixx="0.0703334081055495" ixy="0.000423266450961716" ixz="-0.000439625349903713" iyy="0.0601938657608358" iyz="0.000249448241164554" izz="0.125967804622452" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://tcurdf/meshes/base_link.STL" />
+      </geometry>
+      <material name=""> <color rgba="1 1 1 1" /> </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://tcurdf/meshes/base_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+
+  <link name="left_wheel_link">
+    <inertial>
+      <origin xyz="-0.00015822 0.0049483 -0.00010209" rpy="0 0 0" />
+      <mass value="0.29518" />
+      <inertia ixx="0.00037521" ixy="-3.8666E-07" ixz="-3.4254E-07" iyy="0.00069359" iyz="5.6242E-09" izz="0.00037508" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://tcurdf/meshes/left_wheel_link.STL" />
+      </geometry>
+      <material name=""> <color rgba="1 1 1 1" /> </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://tcurdf/meshes/left_wheel_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+
+  <joint name="left_wheel_joint" type="continuous">
+    <origin xyz="-0.0188184404027057 -0.263700000000008 -0.0905000000669803" rpy="0 0 0" />
+    <parent link="base_link" />
+    <child link="left_wheel_link" />
+    <axis xyz="0 1 0" />
+  </joint>
+
+  <link name="right_wheel_link">
+    <inertial>
+      <origin xyz="1.9643E-05 -0.0049483 0.00018727" rpy="0 0 0" />
+      <mass value="0.29518" />
+      <inertia ixx="0.00037539" ixy="1.7967E-07" ixz="-2.5824E-07" iyy="0.00069359" iyz="-3.4252E-07" izz="0.00037491" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://tcurdf/meshes/right_wheel_link.STL" />
+      </geometry>
+      <material name=""> <color rgba="1 1 1 1" /> </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://tcurdf/meshes/right_wheel_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  
+  <joint name="right_wheel_joint" type="continuous">
+    <origin xyz="-0.0188184403389711 0.263699999999992 -0.0904999999632834" rpy="0 0 0" />
+    <parent link="base_link" />
+    <child link="right_wheel_link" />
+    <axis xyz="0 1 0" /> </joint>
+
+  <link name="mount_link"> </link>
+  <joint name="mount_joint" type="fixed">
+    <origin xyz="0 0 0.016" rpy="0 0 0" />
+    <parent link="base_link" />
+    <child link="mount_link" />
+  </joint>
+
+  <xacro:include filename="$(find tuplateurdf)/urdf/tuplateurdf.urdf.xacro"/>
+  <xacro:tuplateurdf/>
+  <joint name="plate_mount_joint" type="fixed">
+    <origin xyz="0 0 0.0" rpy="0 0 0" />
+    <parent link="mount_link" />
+    <child link="plate_base_link" />
+  </joint>
+  
+  <xacro:include filename="$(find ur_description)/urdf/inc/ur3_macro.xacro" />
+  <xacro:ur3_robot prefix="ur_arm_" />
+  <joint name="ur3_mount_joint" type="fixed">
+    <origin xyz="0 0 0" rpy="0 0 -1.57" />
+    <parent link="arm_0_mount_link" />
+    <child link="ur_arm_base_link" />
+  </joint>
+
+  <link name="ur_wrist_plate_arm_link"> ... </link>
+  <joint name="ur_wrist_plate_arm_joint" type="fixed"> ... </joint>
+  <link name="ur_wrist_plate_gripper_mount_link"> </link>
+  <joint name="ur_wrist_plate_gripper_mount_joint" type="fixed"> ... </joint>
+  <link name="camera_1_screw_virtual_link"> ... </link>
+  <joint name="camera_1_screw_virtual_joint" type="fixed"> ... </joint>
+
+  <xacro:include filename="$(find dh_robotics_ag95_description)/urdf/dh_robotics_ag95_gripper.urdf.xacro" />
+  <xacro:dh_robotics_ag95_gripper prefix="" parent="ur_wrist_plate_gripper_mount_link" >
+    <origin xyz="0 0 0 " rpy="1.57 0 1.57 "/>
+  </xacro:dh_robotics_ag95_gripper>
+  
+  <xacro:include filename="$(find tcurdf)/urdf/inc/realsense.urdf.xacro" />
+  <gazebo>
+    <plugin name="gazebo_ros_control" filename="libgazebo_ros_control.so">
+      <robotNamespace>/</robotNamespace>
+    </plugin>
+  </gazebo>
+
+  <transmission name="left_wheel_transmission">
+    <type>transmission_interface/SimpleTransmission</type>
+    <joint name="left_wheel_joint">
+      <hardwareInterface>hardware_interface/VelocityJointInterface</hardwareInterface>
+    </joint>
+    <actuator name="left_wheel_motor">
+      <hardwareInterface>hardware_interface/VelocityJointInterface</hardwareInterface>
+      <mechanicalReduction>1</mechanicalReduction>
+    </actuator>
+  </transmission>
+
+  <transmission name="right_wheel_transmission">
+    <type>transmission_interface/SimpleTransmission</type>
+    <joint name="right_wheel_joint">
+      <hardwareInterface>hardware_interface/VelocityJointInterface</hardwareInterface>
+    </joint>
+    <actuator name="right_wheel_motor">
+      <hardwareInterface>hardware_interface/VelocityJointInterface</hardwareInterface>
+      <mechanicalReduction>1</mechanicalReduction>
+    </actuator>
+  </transmission>
+
+  <transmission name="ur_arm_shoulder_pan_trans">
+    <type>transmission_interface/SimpleTransmission</type>
+    <joint name="ur_arm_shoulder_pan_joint">
+      <hardwareInterface>hardware_interface/EffortJointInterface</hardwareInterface>
+    </joint>
+    <actuator name="ur_arm_shoulder_pan_motor">
+      <hardwareInterface>hardware_interface/EffortJointInterface</hardwareInterface>
+      <mechanicalReduction>1</mechanicalReduction>
+    </actuator>
+  </transmission>
+  <transmission name="ur_arm_shoulder_lift_trans">
+    <type>transmission_interface/SimpleTransmission</type>
+    <joint name="ur_arm_shoulder_lift_joint">
+      <hardwareInterface>hardware_interface/EffortJointInterface</hardwareInterface>
+    </joint>
+    <actuator name="ur_arm_shoulder_lift_motor">
+      <hardwareInterface>hardware_interface/EffortJointInterface</hardwareInterface>
+      <mechanicalReduction>1</mechanicalReduction>
+    </actuator>
+  </transmission>
+  <transmission name="ur_arm_elbow_trans">
+    <type>transmission_interface/SimpleTransmission</type>
+    <joint name="ur_arm_elbow_joint">
+      <hardwareInterface>hardware_interface/EffortJointInterface</hardwareInterface>
+    </joint>
+    <actuator name="ur_arm_elbow_motor">
+      <hardwareInterface>hardware_interface/EffortJointInterface</hardwareInterface>
+      <mechanicalReduction>1</mechanicalReduction>
+    </actuator>
+  </transmission>
+  <transmission name="ur_arm_wrist_1_trans">
+    <type>transmission_interface/SimpleTransmission</type>
+    <joint name="ur_arm_wrist_1_joint">
+      <hardwareInterface>hardware_interface/EffortJointInterface</hardwareInterface>
+    </joint>
+    <actuator name="ur_arm_wrist_1_motor">
+      <hardwareInterface>hardware_interface/EffortJointInterface</hardwareInterface>
+      <mechanicalReduction>1</mechanicalReduction>
+    </actuator>
+  </transmission>
+  <transmission name="ur_arm_wrist_2_trans">
+    <type>transmission_interface/SimpleTransmission</type>
+    <joint name="ur_arm_wrist_2_joint">
+      <hardwareInterface>hardware_interface/EffortJointInterface</hardwareInterface>
+    </joint>
+    <actuator name="ur_arm_wrist_2_motor">
+      <hardwareInterface>hardware_interface/EffortJointInterface</hardwareInterface>
+      <mechanicalReduction>1</mechanicalReduction>
+    </actuator>
+  </transmission>
+  <transmission name="ur_arm_wrist_3_trans">
+    <type>transmission_interface/SimpleTransmission</type>
+    <joint name="ur_arm_wrist_3_joint">
+      <hardwareInterface>hardware_interface/EffortJointInterface</hardwareInterface>
+    </joint>
+    <actuator name="ur_arm_wrist_3_motor">
+      <hardwareInterface>hardware_interface/EffortJointInterface</hardwareInterface>
+      <mechanicalReduction>1</mechanicalReduction>
+    </actuator>
+  </transmission>
+
+</robot>

@@ -1,0 +1,82 @@
+# ROS相关
+build/
+devel/
+install/
+.catkin_tools/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# IDE相关
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+CTestTestfile.cmake
+Makefile
+cmake-build-*/
+
+# 编译产物
+*.so
+*.a
+*.o
+*.la
+*.lo
+*.dll
+*.exe
+
+# Qt相关
+*.pro.user
+*.qbs.user
+*.qbs.user.*
+
+# 包管理
+node_modules/
+*.deb
+*.rpm
+
+# 传感器数据和配置（可选）
+*.bag
+*.pcd
+*.ply
+
+# Livox SDK build目录（如果不希望跟踪编译产物）
+Livox-SDK2/build/
+
+# 测试结果
+test_results/
+Testing/
+
+# 文档生成
+docs/_build/
+*.pdf
+*.dvi
+*.aux
+*.log
+*.out
+*.toc
+
+# 备份文件
+*.orig
+*.rej
+
+# 系统文件
+.fuse_hidden*
+.directory
+.Trash-*
+.nfs*
