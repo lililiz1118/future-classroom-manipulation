@@ -10,7 +10,7 @@
     <!-- <node name="joint_state_publisher" pkg="joint_state_publisher" type="joint_state_publisher" /> -->
 
     <!-- mid360 -->
-    <include file="$(find livox_ros_driver2)/launch_ROS1/rviz_MID360.launch" > </include>
+    <include file="$(find livox_ros_driver2)/launch_ROS1/msg_MID360.launch" > </include>
 
     <!-- imu -->
     <include file="$(find fdilink_ahrs)/launch/ahrs_data.launch" > </include>
@@ -19,6 +19,10 @@
     <include file="$(find realsense2_camera)/launch/rs_camera_d455.launch" > </include>
 
     <!-- D405 -->
-    <!-- <include file="$(find realsense2_camera)/launch/rs_camera_d405.launch" > </include> -->
+    <include file="$(find realsense2_camera)/launch/rs_camera_d405.launch" > </include>
+
+    <!-- 延时6秒再启动服务，保证相机初始化完毕 -->
+    <node pkg="camera_control" type="get_d405_photo_srv.py" name="get_d405_photo_srv" output="screen" launch-prefix="bash -c 'sleep 6; $0 $@'" /> 
+    <node pkg="camera_control" type="get_d455_photo_srv.py" name="get_d455_photo_srv" output="screen" launch-prefix="bash -c 'sleep 6; $0 $@'" /> 
 
 </launch>

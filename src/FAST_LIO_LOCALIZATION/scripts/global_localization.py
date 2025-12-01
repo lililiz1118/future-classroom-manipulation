@@ -22,11 +22,29 @@ T_map_to_odom = np.eye(4)
 cur_odom = None
 cur_scan = None
 
+# ================= 配置区域 =================
+# 定义雷达到底盘的静态变换 (T_body_to_base)
+# 也就是：在"雷达坐标系"下，"底盘中心"在哪里？
+# 如果雷达在底盘前方 0.3m (x=0.3)，那么底盘就在雷达后方 0.3m (x=-0.3)
+LIDAR_TO_BASE_X = -0.255
+LIDAR_TO_BASE_Y = 0
+LIDAR_TO_BASE_Z = -0.022
+# T_body_to_base
+T_body_to_base = tf.transformations.translation_matrix(
+    [LIDAR_TO_BASE_X, LIDAR_TO_BASE_Y, LIDAR_TO_BASE_Z])
+
 
 def pose_to_mat(pose_msg):
+    # return np.matmul(
+    #     tf.listener.xyz_to_mat44(pose_msg.pose.pose.position),
+    #     tf.listener.xyzw_to_mat44(pose_msg.pose.pose.orientation),
+    # )
     return np.matmul(
-        tf.listener.xyz_to_mat44(pose_msg.pose.pose.position),
-        tf.listener.xyzw_to_mat44(pose_msg.pose.pose.orientation),
+        tf.transformations.translation_matrix(
+            [pose_msg.pose.pose.position.x, pose_msg.pose.pose.position.y, pose_msg.pose.pose.position.z]),
+        tf.transformations.quaternion_matrix(
+            [pose_msg.pose.pose.orientation.x, pose_msg.pose.pose.orientation.y, pose_msg.pose.pose.orientation.z,
+             pose_msg.pose.pose.orientation.w])
     )
 
 
@@ -141,14 +159,51 @@ def global_localization(pose_estimation):
         # T_map_to_odom = np.matmul(transformation, pose_estimation)
         T_map_to_odom = transformation
 
-        # 发布map_to_odom
-        map_to_odom = Odometry()
-        xyz = tf.transformations.translation_from_matrix(T_map_to_odom)
-        quat = tf.transformations.quaternion_from_matrix(T_map_to_odom)
-        map_to_odom.pose.pose = Pose(Point(*xyz), Quaternion(*quat))
-        map_to_odom.header.stamp = cur_odom.header.stamp
-        map_to_odom.header.frame_id = 'map'
-        pub_map_to_odom.publish(map_to_odom)
+        if cur_odom is not None:
+            # 1. 准备各种变换矩阵
+            T_odom_to_body = pose_to_mat(cur_odom)
+
+            # 2. 计算 Pose (核心修正：加入 T_body_to_base)
+            # 链式法则: T_map_to_base = T_map_to_odom * T_odom_to_body * T_body_to_base
+            T_map_to_body = np.matmul(T_map_to_odom, T_odom_to_body)
+            T_map_to_base_link = np.matmul(T_map_to_body, T_body_to_base)
+
+            # 发布map_to_baselink的odometry
+            localization_msg = Odometry()
+
+            # 提取位姿填入消息
+            xyz = tf.transformations.translation_from_matrix(T_map_to_base_link)
+            quat = tf.transformations.quaternion_from_matrix(T_map_to_base_link)
+            localization_msg.pose.pose = Pose(Point(*xyz), Quaternion(*quat))
+
+            # 3. 计算 Twist (速度修正：杆臂效应)
+            # 获取雷达系的原始速度
+            v_body_x = cur_odom.twist.twist.linear.x
+            v_body_y = cur_odom.twist.twist.linear.y
+            omega_z = cur_odom.twist.twist.angular.z
+
+            # v_base = v_body - omega x r_base_to_body
+            # r_base_to_body is vector from base to body
+            # r_base_to_body = (-LIDAR_TO_BASE_X, -LIDAR_TO_BASE_Y, -LIDAR_TO_BASE_Z)
+            r_base_to_body_x = -LIDAR_TO_BASE_X
+            r_base_to_body_y = -LIDAR_TO_BASE_Y
+
+            # v_base.x = v_body.x + omega_z * r_base_to_body.y
+            # v_base.y = v_body.y - omega_z * r_base_to_body.x
+            real_base_vx = v_body_x + omega_z * r_base_to_body_y
+            real_base_vy = v_body_y - omega_z * r_base_to_body_x
+
+            localization_msg.twist.twist.linear.x = real_base_vx
+            localization_msg.twist.twist.linear.y = real_base_vy
+            localization_msg.twist.twist.angular.z = omega_z
+
+            # 4. 修正 Header
+            localization_msg.header.stamp = cur_odom.header.stamp
+            localization_msg.header.frame_id = 'map'
+            localization_msg.child_frame_id = 'base_link'
+
+            pub_localization.publish(localization_msg)
+
         return True
     else:
         rospy.logwarn('Not match!!!!')
@@ -230,7 +285,7 @@ if __name__ == '__main__':
     # publisher
     pub_pc_in_map = rospy.Publisher('/cur_scan_in_map', PointCloud2, queue_size=1)
     pub_submap = rospy.Publisher('/submap', PointCloud2, queue_size=1)
-    pub_map_to_odom = rospy.Publisher('/map_to_odom', Odometry, queue_size=1)
+    pub_localization = rospy.Publisher('/localization', Odometry, queue_size=1)
 
     rospy.Subscriber('/cloud_registered', PointCloud2, cb_save_cur_scan, queue_size=1)
     rospy.Subscriber('/Odometry', Odometry, cb_save_cur_odom, queue_size=1)

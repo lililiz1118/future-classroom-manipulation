@@ -16,31 +16,31 @@
   <arg name="fisheye_height"      default="-1"/>      <!--  -->
   <arg name="enable_fisheye"      default="false"/>   <!-- 是否启用鱼眼摄像头 -->
 
-  <arg name="depth_width"         default="-1"/>      <!-- 指定深度摄像头的图像宽度和高度 -->
-  <arg name="depth_height"        default="-1"/>      <!--  -->
+  <arg name="depth_width"         default="1280"/>      <!-- 指定深度摄像头的图像宽度和高度 -->
+  <arg name="depth_height"        default="720"/>      <!--  -->
   <arg name="enable_depth"        default="true"/>    <!-- 是否启用深度摄像头 -->
 
-  <arg name="confidence_width"    default="-1"/>      <!-- 指定置信图像的宽度和高度 -->
-  <arg name="confidence_height"   default="-1"/>      <!--  -->
+  <arg name="confidence_width"    default="1280"/>      <!-- 指定置信图像的宽度和高度 -->
+  <arg name="confidence_height"   default="720"/>      <!--  -->
   <arg name="enable_confidence"   default="true"/>    <!-- 是否启用置信度图像 -->
   <arg name="confidence_fps"      default="-1"/>      <!--  置信图像的帧率 -->
 
-  <arg name="infra_width"         default="848"/>     <!-- 指定红外摄像头的图像宽度和高度 -->
-  <arg name="infra_height"        default="480"/>     <!--  -->
+  <arg name="infra_width"         default="1280"/>     <!-- 指定红外摄像头的图像宽度和高度 -->
+  <arg name="infra_height"        default="720"/>     <!--  -->
   <arg name="enable_infra"        default="false"/>   <!-- 是否启用红外摄像头 -->
   <arg name="enable_infra1"       default="false"/>   <!--  -->
   <arg name="enable_infra2"       default="false"/>   <!--  -->
   <arg name="infra_rgb"           default="false"/>   <!-- 是否将红外图像与RGB图像同步 -->
 
-  <arg name="color_width"         default="-1"/>      <!-- 指定彩色摄像头的图像宽度和高度 -->
-  <arg name="color_height"        default="-1"/>      <!--  -->
+  <arg name="color_width"         default="1280"/>      <!-- 指定彩色摄像头的图像宽度和高度 -->
+  <arg name="color_height"        default="720"/>      <!--  -->
   <arg name="enable_color"        default="true"/>    <!-- 是否启用彩色摄像头 -->
 
   <!-- 性能参数 -->
   <arg name="fisheye_fps"         default="-1"/>      <!-- 对应各摄像头的帧率 -->
-  <arg name="depth_fps"           default="-1"/>      <!--  -->
+  <arg name="depth_fps"           default="30"/>      <!--  -->
   <arg name="infra_fps"           default="30"/>      <!--  -->
-  <arg name="color_fps"           default="-1"/>      <!--  -->
+  <arg name="color_fps"           default="30"/>      <!--  -->
   <arg name="gyro_fps"            default="-1"/>      <!-- 陀螺仪和加速度计的帧率 -->
   <arg name="accel_fps"           default="-1"/>      <!--  -->
   <arg name="enable_gyro"         default="true"/>    <!-- 是否启用陀螺仪和加速度计 -->

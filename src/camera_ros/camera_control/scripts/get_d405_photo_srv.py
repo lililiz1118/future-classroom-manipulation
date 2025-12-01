@@ -7,7 +7,7 @@ import cv2
 import os
 import threading
 
-SAVE_DIR = "/home/jt001/realsense_images"
+SAVE_DIR = "/home/jt001/realsense_images/d405"
 os.makedirs(SAVE_DIR, exist_ok=True)
 
 
@@ -18,14 +18,10 @@ class RealsenseImageSaverService:
         self.depth_msg = None
         self.lock = threading.Lock()
 
-        # 订阅 RGB 与 深度图像
-        # rospy.Subscriber("/d405/color/image_raw", Image, self.color_callback)
-        # rospy.Subscriber("/d405/depth/image_rect_raw", Image, self.depth_callback)
-
         # 建立服务
-        self.service = rospy.Service("/save_realsense_images", Trigger, self.handle_save)
+        self.service = rospy.Service("/d405_save_realsense_images", Trigger, self.handle_save)
 
-        rospy.loginfo("✅ RealsenseImageSaverService 已启动，可通过 call /save_realsense_images 保存图像。")
+        rospy.loginfo("✅ RealsenseImageSaverService 已启动，可通过 call /d405_save_realsense_images 保存图像。")
 
     def color_callback(self, msg):
         with self.lock:
@@ -34,31 +30,6 @@ class RealsenseImageSaverService:
     def depth_callback(self, msg):
         with self.lock:
             self.depth_msg = msg
-
-    # def handle_save(self, req):
-    #     with self.lock:
-    #         if self.color_msg is None or self.depth_msg is None:
-    #             return TriggerResponse(success=False, message="尚未接收到图像数据。")
-
-    #         try:
-    #             # 转换为 OpenCV 格式
-    #             color_image = self.bridge.imgmsg_to_cv2(self.color_msg, "bgr8")
-    #             depth_image = self.bridge.imgmsg_to_cv2(self.depth_msg, "passthrough")
-
-
-    #             color_path = os.path.join(SAVE_DIR, "color.png")
-    #             depth_path = os.path.join(SAVE_DIR, "depth.png")
-
-    #             cv2.imwrite(color_path, color_image)
-    #             cv2.imwrite(depth_path, depth_image)
-
-    #             msg = f"已保存: {os.path.basename(color_path)}, {os.path.basename(depth_path)}"
-    #             rospy.loginfo(msg)
-    #             return TriggerResponse(success=True, message=msg)
-
-    #         except Exception as e:
-    #             rospy.logerr(f"保存图像出错: {e}")
-    #             return TriggerResponse(success=False, message=str(e))
             
     def handle_save(self, req):
         try:
@@ -85,6 +56,6 @@ class RealsenseImageSaverService:
 
 
 if __name__ == "__main__":
-    rospy.init_node("realsense_image_saver_service")
+    rospy.init_node("d405_realsense_image_saver_service")
     saver = RealsenseImageSaverService()
     rospy.spin()
