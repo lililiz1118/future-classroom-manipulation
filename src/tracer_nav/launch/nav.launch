@@ -7,8 +7,11 @@
         <param name="base_global_planner" value="global_planner/GlobalPlanner" /> 
         <rosparam file="$(find tracer_nav)/config/global_planner_params.yaml" command="load" />
 
-        <param name="base_local_planner" value="teb_local_planner/TebLocalPlannerROS"/>
-        <rosparam file="$(find tracer_nav)/config/teb_local_planner_params.yaml" command="load"/>
+        <!-- <param name="base_local_planner" value="teb_local_planner/TebLocalPlannerROS"/>
+        <rosparam file="$(find tracer_nav)/config/teb_local_planner_params.yaml" command="load"/> -->
+
+        <param name="base_local_planner" value="dwa_local_planner/DWAPlannerROS"/>
+        <rosparam file="$(find tracer_nav)/config/dwa_local_planner_params.yaml" command="load"/>
 
         <param name="controller_frequency" value="10.0" />
     </node>

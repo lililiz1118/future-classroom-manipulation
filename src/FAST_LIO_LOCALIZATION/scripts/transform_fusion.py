@@ -70,10 +70,13 @@ def transform_fusion():
 
         # TODO 这里注意线程安全
         cur_odom = copy.copy(cur_odom_to_baselink)
+        local_map_to_odom = copy.copy(cur_map_to_odom) # For thread safety and consistent timestamp
         
+
         # --- MODIFIED: 自适应滤波逻辑 ---
-        if cur_map_to_odom is not None:
-            target_map_to_odom = pose_to_mat(cur_map_to_odom)
+        if local_map_to_odom is not None:
+            # transform_timestamp = local_map_to_odom.header.stamp # Use message timestamp
+            target_map_to_odom = pose_to_mat(local_map_to_odom)
             
             if last_smooth_map_to_odom is None:
                 # 系统刚启动，直接赋值
@@ -123,9 +126,14 @@ def transform_fusion():
                 last_smooth_map_to_odom = np.eye(4)
         # --------------------------------
 
+        # Per suggestion from https://github.com/ros-planning/navigation/issues/188
+        # We need to forward-date the transform slightly to avoid extrapolation errors
+        # transform_timestamp = rospy.Time.now() + rospy.Duration(0.01)
+        transform_timestamp = rospy.Time.now()
+
         br.sendTransform(tf.transformations.translation_from_matrix(T_map_to_odom),
                          tf.transformations.quaternion_from_matrix(T_map_to_odom),
-                         rospy.Time.now(),
+                         transform_timestamp,
                          'odom', 'map')
         if cur_odom is not None:
             # 发布全局定位的odometry
