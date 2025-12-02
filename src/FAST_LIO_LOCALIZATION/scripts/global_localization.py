@@ -27,7 +27,7 @@ cur_scan = None
 # 定义雷达到底盘的静态变换 (T_body_to_base)
 # 也就是：在"雷达坐标系"下，"底盘中心"在哪里？
 # 如果雷达在底盘前方 0.3m (x=0.3)，那么底盘就在雷达后方 0.3m (x=-0.3)
-LIDAR_TO_BASE_X = 1.0
+LIDAR_TO_BASE_X = 5.0
 LIDAR_TO_BASE_Y = 0
 LIDAR_TO_BASE_Z = -0.022
 # T_body_to_base

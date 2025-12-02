@@ -1,4 +1,14 @@
 <launch>
+    
+    <arg name="local_planner" default="true"/> <!-- true: teb, false: dwa -->
+
+    <!-- Base robot bringup -->
+    <include file="$(find tracer_bringup)/launch/tracer_robot_base.launch"/>
+    <!-- Localization system -->
+    <include file="$(find fast_lio_localization)/launch/tracer_localization.launch">
+        <arg name="rviz_config" value="localization" if="$(arg local_planner)"/>
+        <arg name="rviz_config" value="dwa" unless="$(arg local_planner)"/>
+    </include>
 
     <node pkg="move_base" type="move_base" name="move_base">
 
@@ -7,25 +17,16 @@
         <rosparam file="$(find tracer_nav)/config/global_costmap_params.yaml" command="load" />
         <rosparam file="$(find tracer_nav)/config/local_costmap_params.yaml" command="load" />
 
-        <!-- <param name="base_global_planner" value="global_planner/GlobalPlanner" /> 
-        <rosparam file="$(find tracer_nav)/config/global_planner_params.yaml" command="load" /> -->
+        <param name="base_global_planner" value="global_planner/GlobalPlanner" /> 
+        <rosparam file="$(find tracer_nav)/config/global_planner_params.yaml" command="load" />
 
-        <param name="base_local_planner" value="teb_local_planner/TebLocalPlannerROS"/>
-        <rosparam file="$(find tracer_nav)/config/teb_local_planner_params.yaml" command="load"/>
+        <param name="base_local_planner" value="teb_local_planner/TebLocalPlannerROS" if="$(arg local_planner)"/>
+        <rosparam file="$(find tracer_nav)/config/teb_local_planner_params.yaml" command="load" if="$(arg local_planner)"/>
 
-        <param name="base_local_planner" value="dwa_local_planner/DWAPlannerROS"/>
-        <rosparam file="$(find tracer_nav)/config/dwa_local_planner_params.yaml" command="load"/>
+        <param name="base_local_planner" value="dwa_local_planner/DWAPlannerROS" unless="$(arg local_planner)"/>
+        <rosparam file="$(find tracer_nav)/config/dwa_local_planner_params.yaml" command="load" unless="$(arg local_planner)"/>
 
         <param name="controller_frequency" value="10.0" />
     </node>
-
-    <node pkg="map_server" type="map_server" name="map_server" args="$(find fast_lio)/PCD/map2.yaml"/>
-
-    <!-- <node pkg="rviz" type="rviz" name="rviz" args="-d $(find tracer_nav)/rviz/nav.rviz"/> -->
-
-    <!-- <node pkg="waterplus_map_tools" type="wp_navi_server" name="wp_navi_server" output="screen"/> -->
-
-    <!-- <node pkg="waterplus_map_tools" type="wp_manager" name="wp_manager" output="screen"/> -->
-
 
 </launch>

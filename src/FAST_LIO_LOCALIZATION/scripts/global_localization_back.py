@@ -241,7 +241,6 @@ def cb_save_cur_odom(odom_msg):
     localization_msg.header.stamp = cur_odom.header.stamp
     localization_msg.header.frame_id = 'odom'
     localization_msg.child_frame_id = 'base_link'
-    localization_msg.
 
     pub_localization.publish(localization_msg)
 
