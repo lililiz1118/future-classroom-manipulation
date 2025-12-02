@@ -6,7 +6,7 @@ DWAPlannerROS:
   min_vel_y: 0.0      # 差分驱动机器人的最小y方向速度为 0.0
   max_vel_trans: 1.0   # 最大平移速度
   min_vel_trans: 0.01 # 最小平移速度（建议不要设置为 0.0 ）
-  trans_stopped_vel: 0.1  # 当平移速度小于这个值，就让机器人停止
+  trans_stopped_vel: 0.01  # 当平移速度小于这个值，就让机器人停止
   acc_lim_trans: 2      # 最大平移加速度
   acc_lim_x: 5.0          # x方向的最大加速度上限
   acc_lim_y: 0.0          # y方向的加速度上限（差分驱动机器人应该设置为 0.0 ）

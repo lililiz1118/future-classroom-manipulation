@@ -128,8 +128,8 @@ def transform_fusion():
 
         # Per suggestion from https://github.com/ros-planning/navigation/issues/188
         # We need to forward-date the transform slightly to avoid extrapolation errors
-        # transform_timestamp = rospy.Time.now() + rospy.Duration(0.01)
-        transform_timestamp = rospy.Time.now()
+        transform_timestamp = rospy.Time.now() + rospy.Duration(0.01)
+        # transform_timestamp = rospy.Time.now()
 
         br.sendTransform(tf.transformations.translation_from_matrix(T_map_to_odom),
                          tf.transformations.quaternion_from_matrix(T_map_to_odom),

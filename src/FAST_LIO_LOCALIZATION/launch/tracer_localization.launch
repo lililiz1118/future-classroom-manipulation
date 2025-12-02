@@ -39,7 +39,7 @@
 	<!-- <node pkg="tracer_nav" type="static_tf" name="static_tf" /> -->
 
 	<group if="$(arg rviz)">
-	<node launch-prefix="nice" pkg="rviz" type="rviz" name="rviz" args="-d $(find fast_lio_localization)/rviz_cfg/localization.rviz" />
+	<node launch-prefix="nice" pkg="rviz" type="rviz" name="rviz" args="-d $(find fast_lio_localization)/rviz_cfg/dwa.rviz" />
 	</group>
  
 	<!-- load 2d map -->
