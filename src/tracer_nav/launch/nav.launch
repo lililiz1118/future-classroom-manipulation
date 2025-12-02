@@ -1,14 +1,17 @@
 <launch>
 
     <node pkg="move_base" type="move_base" name="move_base">
+
+        <remap from="odom" to="localization"/>
+`    
         <rosparam file="$(find tracer_nav)/config/global_costmap_params.yaml" command="load" />
         <rosparam file="$(find tracer_nav)/config/local_costmap_params.yaml" command="load" />
 
-        <param name="base_global_planner" value="global_planner/GlobalPlanner" /> 
-        <rosparam file="$(find tracer_nav)/config/global_planner_params.yaml" command="load" />
+        <!-- <param name="base_global_planner" value="global_planner/GlobalPlanner" /> 
+        <rosparam file="$(find tracer_nav)/config/global_planner_params.yaml" command="load" /> -->
 
-        <!-- <param name="base_local_planner" value="teb_local_planner/TebLocalPlannerROS"/>
-        <rosparam file="$(find tracer_nav)/config/teb_local_planner_params.yaml" command="load"/> -->
+        <param name="base_local_planner" value="teb_local_planner/TebLocalPlannerROS"/>
+        <rosparam file="$(find tracer_nav)/config/teb_local_planner_params.yaml" command="load"/>
 
         <param name="base_local_planner" value="dwa_local_planner/DWAPlannerROS"/>
         <rosparam file="$(find tracer_nav)/config/dwa_local_planner_params.yaml" command="load"/>

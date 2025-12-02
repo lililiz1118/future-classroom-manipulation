@@ -22,12 +22,11 @@ T_map_to_odom = np.eye(4)
 cur_odom = None
 cur_scan = None
 
-
 # ================= 配置区域 =================
 # 定义雷达到底盘的静态变换 (T_body_to_base)
 # 也就是：在"雷达坐标系"下，"底盘中心"在哪里？
 # 如果雷达在底盘前方 0.3m (x=0.3)，那么底盘就在雷达后方 0.3m (x=-0.3)
-LIDAR_TO_BASE_X = 1.0
+LIDAR_TO_BASE_X = -0.255
 LIDAR_TO_BASE_Y = 0
 LIDAR_TO_BASE_Z = -0.022
 # T_body_to_base
@@ -47,6 +46,7 @@ def pose_to_mat(pose_msg):
             [pose_msg.pose.pose.orientation.x, pose_msg.pose.pose.orientation.y, pose_msg.pose.pose.orientation.z,
              pose_msg.pose.pose.orientation.w])
     )
+
 
 def msg_to_array(pc_msg):
     pc_array = ros_numpy.numpify(pc_msg)
@@ -159,14 +159,17 @@ def global_localization(pose_estimation):
         # T_map_to_odom = np.matmul(transformation, pose_estimation)
         T_map_to_odom = transformation
 
-        # 发布map_to_odom
-        map_to_odom = Odometry()
-        xyz = tf.transformations.translation_from_matrix(T_map_to_odom)
-        quat = tf.transformations.quaternion_from_matrix(T_map_to_odom)
-        map_to_odom.pose.pose = Pose(Point(*xyz), Quaternion(*quat))
-        map_to_odom.header.stamp = cur_odom.header.stamp
-        map_to_odom.header.frame_id = 'map'
-        pub_map_to_odom.publish(map_to_odom)
+        if cur_odom is not None:
+            # === 发布 /map_to_odom ===
+            map_to_odom_msg = Odometry()
+            xyz_map_odom = tf.transformations.translation_from_matrix(T_map_to_odom)
+            quat_map_odom = tf.transformations.quaternion_from_matrix(T_map_to_odom)
+            map_to_odom_msg.pose.pose = Pose(Point(*xyz_map_odom), Quaternion(*quat_map_odom))
+            map_to_odom_msg.header.stamp = cur_odom.header.stamp
+            map_to_odom_msg.header.frame_id = 'map'
+            map_to_odom_msg.child_frame_id = 'odom'
+            pub_map_to_odom.publish(map_to_odom_msg)
+
         return True
     else:
         rospy.logwarn('Not match!!!!')
@@ -238,8 +241,11 @@ def cb_save_cur_odom(odom_msg):
     localization_msg.header.stamp = cur_odom.header.stamp
     localization_msg.header.frame_id = 'odom'
     localization_msg.child_frame_id = 'base_link'
+    localization_msg.
 
     pub_localization.publish(localization_msg)
+
+
 
 def cb_save_cur_scan(pc_msg):
     global cur_scan
@@ -291,8 +297,8 @@ if __name__ == '__main__':
     # publisher
     pub_pc_in_map = rospy.Publisher('/cur_scan_in_map', PointCloud2, queue_size=1)
     pub_submap = rospy.Publisher('/submap', PointCloud2, queue_size=1)
-    pub_map_to_odom = rospy.Publisher('/map_to_odom', Odometry, queue_size=1)
     pub_localization = rospy.Publisher('/localization', Odometry, queue_size=1)
+    pub_map_to_odom = rospy.Publisher('/map_to_odom', Odometry, queue_size=1)
 
     rospy.Subscriber('/cloud_registered', PointCloud2, cb_save_cur_scan, queue_size=1)
     rospy.Subscriber('/Odometry', Odometry, cb_save_cur_odom, queue_size=1)
@@ -320,3 +326,5 @@ if __name__ == '__main__':
     _thread.start_new_thread(thread_localization, ())
 
     rospy.spin()
+
+
