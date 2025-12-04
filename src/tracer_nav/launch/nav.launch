@@ -1,6 +1,6 @@
 <launch>
     
-    <arg name="local_planner" default="true"/> <!-- true: teb, false: dwa -->
+    <arg name="local_planner" default="false"/> <!-- true: teb, false: dwa -->
 
     <!-- Base robot bringup -->
     <include file="$(find tracer_bringup)/launch/tracer_robot_base.launch"/>

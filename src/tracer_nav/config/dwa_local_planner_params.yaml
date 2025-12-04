@@ -22,7 +22,7 @@ DWAPlannerROS:
   latch_xy_goal_tolerance: true  # 到达目标容差范围后，停止移动，只旋转调整航向
 
   # 向前模拟参数
-  sim_time: 0.4      # 模拟时间，默认值 1.7
+  sim_time: 1.0      # 模拟时间，默认值 1.7
   vx_samples: 10       # x方向速度采样数，默认值 3
   vy_samples: 1       # 差分驱动机器人y方向速度采样数，只有一个样本
   vtheta_samples: 20  # 旋转速度采样数，默认值 20
@@ -42,7 +42,7 @@ DWAPlannerROS:
   # 辅助调试选项
   publish_traj_pc : true      # 是否在 RViz 里发布轨迹
   publish_cost_grid_pc: true  # 是否在 RViz 里发布代价网格
-  global_frame_id: odom       # 基础坐标系
+  global_frame_id: body       # 基础坐标系
 
   # 差分驱动机器人配置
   holonomic_robot: false # 是否全向移动机器人

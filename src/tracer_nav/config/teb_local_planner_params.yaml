@@ -17,16 +17,17 @@ TebLocalPlannerROS:
  acc_lim_theta: 0.3       # 最大角加速度   yuan1.0
 
  # ********************** 转弯半径相关 ********************
- min_turning_radius: 0.1         # 小转弯半径。如果设为 0，表示可以原地转弯。
+ min_turning_radius: 0.0         # 小转弯半径。如果设为 0，表示可以原地转弯。
  wheelbase: 0.31                 # 只有在 cmd_angle_instead_rotvel为true时才有效
  cmd_angle_instead_rotvel: False # 是否将收到的角速度消息转换为操作上的角度变化。设置成 True 时，话题 vel_msg.angular.z 内的数据是转轴角度。
  # ********************************************************************
 
 # 车体轮廓
  footprint_model: # types可选项: "point", "circular", "two_circles", "line", "polygon"
-  type: "circular"
+  # type: "circular"
+  type: "polygon"
   #  对 type "circular" 有效的参数：
-  radius: 0.45
+  # radius: 0.45
   #  # 对 type "line" 有效的参数：        
   #  line_start: [0.0, 0.0] 
   #  line_end: [0.35, 0.0]
@@ -36,7 +37,7 @@ TebLocalPlannerROS:
   #  rear_offset: 0.35
   #  rear_radius: 0.35
   # 对 type "polygon" 有效的参数：
-  # vertices: [[0.3, 0.35], [0.3, -0.35], [-0.3, -0.35], [-0.3, 0.35]] 
+  vertices: [[0.3, 0.35], [0.3, -0.35], [-0.3, -0.35], [-0.3, 0.35]] 
 
  # 到达目标点的判断容差   
  xy_goal_tolerance: 0.1
@@ -63,7 +64,7 @@ TebLocalPlannerROS:
  weight_optimaltime: 1      # 耗时权重
  weight_obstacle: 50        # 与障碍物保持距离的权重
 
- global_plan_viapoint_sep: 0.3   # (关键) 全局路径中提取途经点的间隔(米)。
+ global_plan_viapoint_sep: 0.4   # (关键) 全局路径中提取途经点的间隔(米)。
                                  # 如果设为负数，则禁用途经点，机器人会直接切弯。
                                  # 建议：设为 0.3 到 0.5 左右。
  
@@ -73,10 +74,9 @@ TebLocalPlannerROS:
  # 多线规划
  enable_homotopy_class_planning: True # 激活多线规划
  enable_multithreading: True          # 多线程计算
- max_number_classes: 2                # 规划的路径线数上限
+ max_number_classes: 4                # 规划的路径线数上限
  selection_cost_hysteresis: 1.0       # 路径轨迹入选的评价上限
  selection_obst_cost_scale: 1.0       # 障碍物评价在入选标准中的缩放倍率
  selection_alternative_time_cost: False # 时间成本是否要进行平方计算
  roadmap_graph_no_samples: 15         # 为创建 roadmap graph 而生成的样本数
  roadmap_graph_area_width: 5          # 关键点采样的宽度，单位为米。
-

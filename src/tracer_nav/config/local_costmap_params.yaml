@@ -1,29 +1,15 @@
-# local_costmap:
-#   global_frame: odom
-#   robot_base_frame: body
-#   update_frequency: 10.0
-#   publish_frequency: 10.0
-#   rolling_window: true
-#   width: 3.0
-#   height: 3.0
-#   resolution: 0.05
-#   transform_tolerance: 1.0
-
 local_costmap:
   global_frame: odom
   robot_base_frame: body
   update_frequency: 10.0
   publish_frequency: 10.0
   rolling_window: true
-  width: 3.0
-  height: 3.0
-  resolution: 0.05
-  transform_tolerance: 10.0
+  width: 5.0   # 适当增大局部地图，为规划器提供更多空间
+  height: 5.0  # 适当增大局部地图，为规划器提供更多空间
+  resolution: 0.1 
+  transform_tolerance: 1.0 
   footprint: [[0.3, 0.35], [0.3, -0.35], [-0.3, -0.35], [-0.3, 0.35]] 
 
-  # ----------------------------------------------------------------
-  # 您的文件缺失了以下所有内容
-  # ----------------------------------------------------------------
   plugins:
     - {name: obstacle_layer, type: "costmap_2d::ObstacleLayer"}
     - {name: inflation_layer, type: "costmap_2d::InflationLayer"}
@@ -44,5 +30,5 @@ local_costmap:
 
   # 膨胀层参数 (通常在 costmap_common_params.yaml 中定义)
   inflation_layer:
-    inflation_radius: 0.4 # 必须大于 TEB 的 min_obstacle_dist
+    inflation_radius: 0.4  # 必须大于 TEB 的 min_obstacle_dist
     cost_scaling_factor: 10.0
