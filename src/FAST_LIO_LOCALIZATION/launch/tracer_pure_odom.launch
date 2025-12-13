@@ -17,7 +17,7 @@
     <node pkg="fast_lio" type="fastlio_mapping" name="laserMapping" output="screen" /> 
 
 	<!-- loalization-->
-    <node pkg="fast_lio_localization" type="new_global_localization.py" name="global_localization" output="screen" />
+    <node pkg="fast_lio_localization" type="limited_global_localization.py" name="global_localization_limited" output="screen" />
 
 	<!-- transform  fusion-->
     <node pkg="fast_lio_localization" type="new_transform_fusion.py" name="transform_fusion" output="screen" />

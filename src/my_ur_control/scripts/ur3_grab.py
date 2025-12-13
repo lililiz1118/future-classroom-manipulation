@@ -468,12 +468,12 @@ if __name__ == '__main__':
     print("target ee pose")
     print(f"xyz_r1_r2_r3{pose}")
 
-    robot.movel(pose,
-                    acc=0.01,
-                    vel=0.1,
-                    wait=True,
-                    threshold=None)
-    time.sleep(4)
+    # robot.movel(pose,
+    #                 acc=0.01,
+    #                 vel=0.1,
+    #                 wait=True,
+    #                 threshold=None)
+    # time.sleep(4)
     
     # print("done")
     # robot.movel(home, 
@@ -486,7 +486,14 @@ if __name__ == '__main__':
     # /////需要重新标定！！！！！
 
     
-    robot.movej(home_j,
+    # robot.movej(home_j,
+    #                 acc=0.05,
+    #                 vel=0.2,
+    #                 wait=True,
+    #                 threshold=None)
+
+    home_2_j = [1.5707963267948966, -1.99456226917912, 1.8949039688902434, -2.5146556539948797, -1.605702911834783, 0.0]
+    robot.movej(home_2_j,
                     acc=0.05,
                     vel=0.2,
                     wait=True,

@@ -42,7 +42,7 @@ DWAPlannerROS:
   # 辅助调试选项
   publish_traj_pc : true      # 是否在 RViz 里发布轨迹
   publish_cost_grid_pc: true  # 是否在 RViz 里发布代价网格
-  global_frame_id: body       # 基础坐标系
+  global_frame_id: base_link       # 基础坐标系
 
   # 差分驱动机器人配置
   holonomic_robot: false # 是否全向移动机器人

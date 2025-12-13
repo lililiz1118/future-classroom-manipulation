@@ -2,6 +2,14 @@
     
     <arg name="local_planner" default="true"/> <!-- true: teb, false: dwa -->
 
+    <!-- Base robot bringup -->
+    <include file="$(find tracer_bringup)/launch/tracer_robot_base.launch"/>
+    <!-- Localization system -->
+    <include file="$(find fast_lio_localization)/launch/tracer_localization.launch">
+        <arg name="rviz_config" value="localization" if="$(arg local_planner)"/>
+        <arg name="rviz_config" value="dwa" unless="$(arg local_planner)"/>
+    </include>
+
     <node pkg="move_base" type="move_base" name="move_base">
 
         <remap from="odom" to="localization"/>

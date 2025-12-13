@@ -1,6 +1,6 @@
 global_costmap:
   global_frame: map  # 全局代价地图的参考坐标系通常是 "map"
-  robot_base_frame: body # 机器人的基座坐标系
+  robot_base_frame: base_link # 机器人的基座坐标系
   update_frequency: 1.0 # 地图更新频率，可以设置得比局部代价地图低
   publish_frequency: 1.0 # 地图发布频率
   transform_tolerance: 1.0 # TF 变换容忍时间
