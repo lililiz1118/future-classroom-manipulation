@@ -212,7 +212,7 @@ if __name__ == '__main__':
     SCAN_VOXEL_SIZE = 0.03
 
     # Global localization frequency (HZ)
-    FREQ_LOCALIZATION = 0.5
+    FREQ_LOCALIZATION = 0.1
 
     # The threshold of global localization,
     # only those scan2map-matching with higher fitness than LOCALIZATION_TH will be taken

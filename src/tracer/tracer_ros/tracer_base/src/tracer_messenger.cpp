@@ -29,7 +29,7 @@ void TracerROSMessenger::DetachRobot()
 void TracerROSMessenger::SetupSubscription()
 {
     // odometry publisher
-    odom_publisher_ = nh_->advertise<nav_msgs::Odometry>(odom_frame_, 50);
+    odom_publisher_ = nh_->advertise<nav_msgs::Odometry>("wheel_odom", 50);
 
     status_publisher_ = nh_->advertise<tracer_msgs::TracerStatus>("/tracer_status", 10);
     status_uart_publisher_ = nh_->advertise<tracer_msgs::UartTracerStatus>("/uart_tracer_status", 10);
@@ -268,49 +268,53 @@ void TracerROSMessenger::PublishSimStateToROS(double linear, double angular)
 
 void TracerROSMessenger::PublishOdometryToROS(double linear, double angular, double dt)
 {
-    // // perform numerical integration to get an estimation of pose
-    // linear_speed_ = linear;
-    // angular_speed_ = angular;
+    // 检查是否需要发布里程计
+    if (!publish_odom_) {
+        return;  // 不发布里程计，直接返回
+    }
 
-    // double d_x = linear_speed_ * std::cos(theta_) * dt;
-    // double d_y = linear_speed_ * std::sin(theta_) * dt;
-    // double d_theta = angular_speed_ * dt;
+    // perform numerical integration to get an estimation of pose
+    linear_speed_ = linear;
+    angular_speed_ = angular;
 
-    // position_x_ += d_x;
-    // position_y_ += d_y;
-    // theta_ += d_theta;
+    double d_x = linear_speed_ * std::cos(theta_) * dt;
+    double d_y = linear_speed_ * std::sin(theta_) * dt;
+    double d_theta = angular_speed_ * dt;
 
+    position_x_ += d_x;
+    position_y_ += d_y;
+    theta_ += d_theta;
 
-    // geometry_msgs::Quaternion odom_quat = tf::createQuaternionMsgFromYaw(theta_);
+    geometry_msgs::Quaternion odom_quat = tf::createQuaternionMsgFromYaw(theta_);
 
-    // // publish tf transformation
-    // geometry_msgs::TransformStamped tf_msg;
-    // tf_msg.header.stamp = current_time_;
-    // tf_msg.header.frame_id = odom_frame_;
-    // tf_msg.child_frame_id = base_frame_;
+    // publish tf transformation
+    geometry_msgs::TransformStamped tf_msg;
+    tf_msg.header.stamp = current_time_;
+    tf_msg.header.frame_id = odom_frame_;
+    tf_msg.child_frame_id = base_frame_;
 
-    // tf_msg.transform.translation.x = position_x_;
-    // tf_msg.transform.translation.y = position_y_;
-    // tf_msg.transform.translation.z = 0.0;
-    // tf_msg.transform.rotation = odom_quat;
+    tf_msg.transform.translation.x = position_x_;
+    tf_msg.transform.translation.y = position_y_;
+    tf_msg.transform.translation.z = 0.0;
+    tf_msg.transform.rotation = odom_quat;
 
-    // tf_broadcaster_.sendTransform(tf_msg);
+    tf_broadcaster_.sendTransform(tf_msg);
 
-    // // publish odometry and tf messages
-    // nav_msgs::Odometry odom_msg;
-    // odom_msg.header.stamp = current_time_;
-    // odom_msg.header.frame_id = odom_frame_;
-    // odom_msg.child_frame_id = base_frame_;
+    // publish odometry and tf messages
+    nav_msgs::Odometry odom_msg;
+    odom_msg.header.stamp = current_time_;
+    odom_msg.header.frame_id = odom_frame_;
+    odom_msg.child_frame_id = base_frame_;
 
-    // odom_msg.pose.pose.position.x = position_x_;
-    // odom_msg.pose.pose.position.y = position_y_;
-    // odom_msg.pose.pose.position.z = 0.0;
-    // odom_msg.pose.pose.orientation = odom_quat;
+    odom_msg.pose.pose.position.x = position_x_;
+    odom_msg.pose.pose.position.y = position_y_;
+    odom_msg.pose.pose.position.z = 0.0;
+    odom_msg.pose.pose.orientation = odom_quat;
 
-    // odom_msg.twist.twist.linear.x = linear_speed_;
-    // odom_msg.twist.twist.linear.y = 0.0;
-    // odom_msg.twist.twist.angular.z = angular_speed_;
+    odom_msg.twist.twist.linear.x = linear_speed_;
+    odom_msg.twist.twist.linear.y = 0.0;
+    odom_msg.twist.twist.angular.z = angular_speed_;
 
-    // odom_publisher_.publish(odom_msg);
+    odom_publisher_.publish(odom_msg);
 }
 } // namespace wescore
