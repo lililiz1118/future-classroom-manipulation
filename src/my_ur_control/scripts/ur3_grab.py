@@ -434,7 +434,7 @@ if __name__ == '__main__':
     base_tar_xyz, base_tar_q = transform_target_to_base_urx(robot, effort_tar_xyz, effort_tar_q)
     # base_tar_q_new = align_y_down_around_z(base_tar_q) # 保证姿态正确
     print("taregt under arm base")
-    print(f"xyz:{base_tar_xyz}")
+    print(f"xyz:{base_tar_xyz}")                            
     print(f"q:{base_tar_q}")
 
     # 末端执行器转夹爪, 控制加爪到位需要给ee作补偿
@@ -479,7 +479,7 @@ if __name__ == '__main__':
     # robot.movel(home, 
     #                 acc=0.01,
     #                 vel=0.1,
-    #                 wait=None,
+    #                 wait=True,
     #                 threshold=None)
     
 
@@ -491,6 +491,8 @@ if __name__ == '__main__':
     #                 vel=0.2,
     #                 wait=True,
     #                 threshold=None)
+
+    # home_1_j = [1.5707963267948966, -1.9945622701791198, 1.8949039688902434, -2.5144958533482306, -1.6057029118347833, 0.0]
 
     home_2_j = [1.5707963267948966, -1.99456226917912, 1.8949039688902434, -2.5146556539948797, -1.605702911834783, 0.0]
     robot.movej(home_2_j,

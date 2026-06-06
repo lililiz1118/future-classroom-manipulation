@@ -1,5 +1,5 @@
 TebLocalPlannerROS:
- odom_topic: localization
+ odom_topic: localization_speed
 
  # 策略相关
  teb_autosize: True  # 是否允许改变轨迹的时域长度，也就是改变 dt_ref

@@ -24,7 +24,7 @@
 
 	<!-- glbal map-->
 	<!-- 加载全局点云地图 -->
-	<arg name="map" default="/home/jt001/fastlio_ws/src/FAST_LIO/PCD/scans_11_15.pcd" />
+	<arg name="map" default="/home/jt001/fastlio_ws/src/FAST_LIO/PCD/scans_1_24.pcd" />
 
 	<!-- <arg name="map" default="$(find fast_lio)/PCD/scans.pcd" /> -->
     <node pkg="pcl_ros" type="pcd_to_pointcloud" name="map_publisher" output="screen"

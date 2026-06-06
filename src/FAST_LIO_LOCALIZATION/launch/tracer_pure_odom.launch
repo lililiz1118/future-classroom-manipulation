@@ -24,7 +24,7 @@
 
 	<!-- glbal map-->
 	<!-- 加载全局点云地图 -->
-	<arg name="map" default="/home/jt001/fastlio_ws/src/FAST_LIO/PCD/scans_11_15.pcd" />
+	<arg name="map" default="/home/jt001/fastlio_ws/src/FAST_LIO/PCD/scans.pcd" />
 
 	<!-- <arg name="map" default="$(find fast_lio)/PCD/scans.pcd" /> -->
     <node pkg="pcl_ros" type="pcd_to_pointcloud" name="map_publisher" output="screen"
@@ -46,7 +46,7 @@
 	<!-- load 2d map -->
 	<arg name="2dmap" default="map1.yaml" />
 	<!-- <node name = "map_server" pkg = "map_server" type = "map_server" args="/home/jt001/fastlio_ws/src/FAST_LIO/PCD/map1.yaml /map:=prior_map"/> -->
-	<node name = "map_server" pkg = "map_server" type = "map_server" args="/home/jt001/fastlio_ws/src/FAST_LIO/PCD/map2.yaml"/>
+	<node name = "map_server" pkg = "map_server" type = "map_server" args="/home/jt001/map.yaml"/>
 
 	<!-- pointscloud2 to laserscans -->
 	<include file="$(find fast_lio_localization)/launch/PointsCloud2toLaserscan.launch">

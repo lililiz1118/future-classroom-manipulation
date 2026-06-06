@@ -31,6 +31,14 @@ LIDAR_TO_BASE_Z = -0.022
 T_body_to_base = tf.transformations.translation_matrix(
     [LIDAR_TO_BASE_X, LIDAR_TO_BASE_Y, LIDAR_TO_BASE_Z])
 
+# 定义base_link到base_footprint的静态变换
+# base_footprint在base_link正下方0.151m
+BASE_TO_FOOTPRINT_X = 0.0
+BASE_TO_FOOTPRINT_Y = 0.0
+BASE_TO_FOOTPRINT_Z = -0.151
+T_base_to_footprint = tf.transformations.translation_matrix(
+    [BASE_TO_FOOTPRINT_X, BASE_TO_FOOTPRINT_Y, BASE_TO_FOOTPRINT_Z])
+
 
 def pose_to_mat(pose_msg):
     return np.matmul(
@@ -65,7 +73,7 @@ def interpolate_transform(T_old, T_new, alpha):
 
 def transform_fusion():
     global cur_odom_to_baselink, cur_map_to_odom, last_smooth_map_to_odom
-    global pub_odom_to_baselink, pub_localization
+    global pub_localization, pub_map_to_basefootprint
 
     # --- 参数设置 ---
     # 跳变阈值 (米): 超过此值认为是漂移/重定位，快速更新；小于此值认为是噪声，慢速平滑
@@ -170,31 +178,32 @@ def transform_fusion():
             
             pub_localization.publish(odom_to_baselink)
             
-            # === NEW ADDED: 发布 map → base_link 的变换 ===
-            # 计算 map → base_link (map → odom → body → base_link)
+            # === NEW ADDED: 发布 map → base_footprint 的变换 ===
+            # 计算 map → base_footprint (map → odom → body → base_link → base_footprint)
             T_map_to_body = np.matmul(T_map_to_odom, T_odom_to_body)
             T_map_to_base_link = np.matmul(T_map_to_body, T_body_to_base)
+            T_map_to_footprint = np.matmul(T_map_to_base_link, T_base_to_footprint)
             
-            map_to_baselink = Odometry()
-            xyz_map = tf.transformations.translation_from_matrix(T_map_to_base_link)
-            quat_map = tf.transformations.quaternion_from_matrix(T_map_to_base_link)
-            map_to_baselink.pose.pose = Pose(Point(*xyz_map), Quaternion(*quat_map))
+            map_to_basefootprint = Odometry()
+            xyz_map = tf.transformations.translation_from_matrix(T_map_to_footprint)
+            quat_map = tf.transformations.quaternion_from_matrix(T_map_to_footprint)
+            map_to_basefootprint.pose.pose = Pose(Point(*xyz_map), Quaternion(*quat_map))
             
             # 速度与 odom_to_baselink 相同（因为速度是在局部坐标系中）
-            map_to_baselink.twist.twist.linear.x = real_base_vx
-            map_to_baselink.twist.twist.linear.y = real_base_vy
-            map_to_baselink.twist.twist.angular.z = omega_z
-            map_to_baselink.twist.twist.linear.z = cur_odom.twist.twist.linear.z
-            map_to_baselink.twist.twist.angular.x = cur_odom.twist.twist.angular.x
-            map_to_baselink.twist.twist.angular.y = cur_odom.twist.twist.angular.y
-            map_to_baselink.twist.covariance = cur_odom.twist.covariance
-            map_to_baselink.pose.covariance = cur_odom.pose.covariance
+            map_to_basefootprint.twist.twist.linear.x = real_base_vx
+            map_to_basefootprint.twist.twist.linear.y = real_base_vy
+            map_to_basefootprint.twist.twist.angular.z = omega_z
+            map_to_basefootprint.twist.twist.linear.z = cur_odom.twist.twist.linear.z
+            map_to_basefootprint.twist.twist.angular.x = cur_odom.twist.twist.angular.x
+            map_to_basefootprint.twist.twist.angular.y = cur_odom.twist.twist.angular.y
+            map_to_basefootprint.twist.covariance = cur_odom.twist.covariance
+            map_to_basefootprint.pose.covariance = cur_odom.pose.covariance
             
-            map_to_baselink.header.stamp = cur_odom.header.stamp
-            map_to_baselink.header.frame_id = 'map'
-            map_to_baselink.child_frame_id = 'base_link'
+            map_to_basefootprint.header.stamp = cur_odom.header.stamp
+            map_to_basefootprint.header.frame_id = 'map'
+            map_to_basefootprint.child_frame_id = 'base_footprint'
             
-            pub_map_to_baselink.publish(map_to_baselink)
+            pub_map_to_basefootprint.publish(map_to_basefootprint)
             # ================================================
 
 
@@ -218,9 +227,28 @@ if __name__ == '__main__':
     rospy.Subscriber('/Odometry', Odometry, cb_save_cur_odom, queue_size=1)
     rospy.Subscriber('/map_to_odom', Odometry, cb_save_map_to_odom, queue_size=1)
 
-    pub_map_to_baselink = rospy.Publisher('/map_to_baselink', Odometry, queue_size=1)
+    pub_map_to_basefootprint = rospy.Publisher('/map_to_basefootprint', Odometry, queue_size=1)
     pub_localization = rospy.Publisher('/localization', Odometry, queue_size=1)
 
+    # 发布静态TF: base_link -> base_footprint
+    static_tf_broadcaster = tf.TransformBroadcaster()
+    
+    def publish_static_tf():
+        """持续发布base_link到base_footprint的静态变换"""
+        rate = rospy.Rate(10)  # 10Hz
+        while not rospy.is_shutdown():
+            static_tf_broadcaster.sendTransform(
+                (BASE_TO_FOOTPRINT_X, BASE_TO_FOOTPRINT_Y, BASE_TO_FOOTPRINT_Z),
+                (0, 0, 0, 1),  # 无旋转
+                rospy.Time.now(),
+                'base_footprint',
+                'base_link'
+            )
+            rate.sleep()
+    
+    # 启动静态TF发布线程
+    _thread.start_new_thread(publish_static_tf, ())
+    
     # 发布定位消息
     _thread.start_new_thread(transform_fusion, ())
 
