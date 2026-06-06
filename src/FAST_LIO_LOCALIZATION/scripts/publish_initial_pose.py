@@ -16,7 +16,7 @@ if __name__ == '__main__':
     parser.add_argument('yaw', type=float)
     parser.add_argument('pitch', type=float)
     parser.add_argument('roll', type=float)
-    args = parser.parse_args()
+    args, _ = parser.parse_known_args()
 
     rospy.init_node('publish_initial_pose')
     pub_pose = rospy.Publisher('/initialpose', PoseWithCovarianceStamped, queue_size=1)
@@ -31,5 +31,12 @@ if __name__ == '__main__':
     initial_pose.header.frame_id = 'map'
     rospy.sleep(1)
     rospy.loginfo('Initial Pose: {} {} {} {} {} {}'.format(
-        args.x, args.y, args.z, args.yaw, args.pitch, args.roll, ))
-    pub_pose.publish(initial_pose)
+        args.x, args.y, args.z, args.yaw, args.pitch, args.roll))
+
+    # 循环发布，每秒一次，直到定位初始化完成（最多10次）
+    rate = rospy.Rate(1)
+    for i in range(10):
+        initial_pose.header.stamp = rospy.Time().now()
+        pub_pose.publish(initial_pose)
+        rospy.loginfo_throttle(5, 'Publishing initial pose... (attempt {}/10)'.format(i + 1))
+        rate.sleep()

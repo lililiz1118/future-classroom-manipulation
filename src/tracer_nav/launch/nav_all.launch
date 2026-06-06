@@ -13,7 +13,6 @@
     <node pkg="move_base" type="move_base" name="move_base">
 
         <remap from="odom" to="localization"/>
-`    
         <rosparam file="$(find tracer_nav)/config/global_costmap_params.yaml" command="load" />
         <rosparam file="$(find tracer_nav)/config/local_costmap_params.yaml" command="load" />
 
