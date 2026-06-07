@@ -1,5 +1,8 @@
 <launch>
+    <!-- 自动配置 CAN0 波特率，必须在底盘驱动之前完成 -->
+    <node pkg="tracer_bringup" type="setup_can0.sh" name="setup_can0" output="screen" />
     <include file="$(find tracer_base)/launch/tracer_base.launch" >
+
         <arg name="port_name" default="can0" />
         <arg name="simulated_robot" default="false" />
     </include>

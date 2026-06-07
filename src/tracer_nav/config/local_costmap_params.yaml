@@ -30,5 +30,5 @@ local_costmap:
 
   # 膨胀层参数 (通常在 costmap_common_params.yaml 中定义)
   inflation_layer:
-    inflation_radius: 0.4  # 必须大于 TEB 的 min_obstacle_dist
+    inflation_radius: 0.3  # 必须大于 TEB 的 min_obstacle_dist
     cost_scaling_factor: 10.0

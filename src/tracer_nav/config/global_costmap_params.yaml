@@ -36,5 +36,5 @@ global_costmap:
 
   # 膨胀层参数
   inflation_layer:
-    inflation_radius: 0.45 # 膨胀半径
+    inflation_radius: 0.2 # 膨胀半径
     cost_scaling_factor: 10.0 # 代价缩放系数

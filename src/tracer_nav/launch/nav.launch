@@ -11,9 +11,10 @@
         <rosparam file="$(find tracer_nav)/config/global_costmap_params.yaml" command="load" />
         <rosparam file="$(find tracer_nav)/config/local_costmap_params.yaml" command="load" />
 
-        <param name="base_global_planner" value="global_planner/GlobalPlanner" /> 
-        <rosparam file="$(find tracer_nav)/config/global_planner_params.yaml" command="load" />
+        <param name="base_global_planner" value="navfn/NavfnROS" /> 
 
+        <param name="NavfnROS/allow_unknown" value="false" />
+        <param name="NavfnROS/default_tolerance" value="0.2" />
         <param name="base_local_planner" value="teb_local_planner/TebLocalPlannerROS" if="$(arg local_planner)"/>
         <rosparam file="$(find tracer_nav)/config/teb_local_planner_params.yaml" command="load" if="$(arg local_planner)"/>
 

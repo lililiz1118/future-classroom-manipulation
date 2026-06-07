@@ -1,4 +1,4 @@
-image: /home/jt001/south0.03.pgm
+image: /home/jt001/tracer_ws/src/FAST_LIO_LOCALIZATION/PCD/south0.03.pgm
 resolution: 0.050000
 origin: [-32.515282, -6.546281, 0.000000]
 negate: 0

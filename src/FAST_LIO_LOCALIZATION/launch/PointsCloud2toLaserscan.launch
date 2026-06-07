@@ -10,14 +10,14 @@
 
             angle_min: -1.57 # -M_PI/2
             angle_max: 1.57 # M_PI/2
-            angle_increment: 0.0087 # M_PI/360.0  
-            scan_time: 10
+            angle_increment: 0.0087 # M_PI/360.0
+            scan_time: 0.1  # 10Hz 扫描频率
             range_min: 0.05
             range_max: 30.0
             use_inf: true
             inf_epsilon: 1.0
-            
-            concurrency_level: 1
+
+            concurrency_level: 4
         </rosparam>
     </node>
 </launch>
