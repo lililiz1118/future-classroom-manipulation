@@ -1,34 +1,46 @@
 local_costmap:
   global_frame: odom
   robot_base_frame: base_link
-  update_frequency: 10.0
-  publish_frequency: 10.0
+  update_frequency: 5.0
+  publish_frequency: 2.0
   rolling_window: true
-  width: 5.0   # 适当增大局部地图，为规划器提供更多空间
-  height: 5.0  # 适当增大局部地图，为规划器提供更多空间
-  resolution: 0.1 
-  transform_tolerance: 1.0 
-  footprint: [[0.3, 0.35], [0.3, -0.35], [-0.3, -0.35], [-0.3, 0.35]] 
+  width: 5.0
+  height: 5.0
+  resolution: 0.05
+  transform_tolerance: 0.5
+  footprint: [[0.38, 0.31], [0.38, -0.31], [-0.38, -0.31], [-0.38, 0.31]]
 
   plugins:
     - {name: obstacle_layer, type: "costmap_2d::ObstacleLayer"}
     - {name: inflation_layer, type: "costmap_2d::InflationLayer"}
 
-  # 障碍物层参数 (通常在 costmap_common_params.yaml 中定义)
   obstacle_layer:
     enabled: true
-    # max_obstacle_height: 2.0
-    observation_sources: laser_scan_sensor
-    laser_scan_sensor:
+    footprint_clearing_enabled: true
+    observation_sources: laser_mark laser_clear
+    laser_mark:
       topic: /scan
-      sensor_frame: body
+      sensor_frame: base_link
       data_type: LaserScan
       marking: true
+      clearing: false
+      observation_persistence: 2.0
+      obstacle_range: 4.5
+      min_obstacle_height: -1.0
+      max_obstacle_height: 2.0
+      expected_update_rate: 0.5
+    laser_clear:
+      topic: /scan
+      sensor_frame: base_link
+      data_type: LaserScan
+      marking: false
       clearing: true
-      obstacle_range: 2.5
-      raytrace_range: 3.0
+      raytrace_range: 5.5
+      inf_is_valid: true
+      min_obstacle_height: -1.0
+      max_obstacle_height: 2.0
+      expected_update_rate: 0.5
 
-  # 膨胀层参数 (通常在 costmap_common_params.yaml 中定义)
   inflation_layer:
-    inflation_radius: 0.3  # 必须大于 TEB 的 min_obstacle_dist
-    cost_scaling_factor: 10.0
+    inflation_radius: 0.55
+    cost_scaling_factor: 2.2

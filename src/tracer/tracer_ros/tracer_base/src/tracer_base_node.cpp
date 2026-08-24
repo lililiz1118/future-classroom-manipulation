@@ -28,7 +28,8 @@ int main(int argc, char **argv)
     private_node.param<std::string>("odom_frame", messenger.odom_frame_, std::string("wheel_odom_frame"));
     private_node.param<std::string>("base_frame", messenger.base_frame_, std::string("base_link"));
     private_node.param<bool>("simulated_robot", messenger.simulated_robot_, false);
-    private_node.param<bool>("publish_odom", messenger.publish_odom_, false);  // 默认不发布轮式里程计
+    private_node.param<bool>("publish_odom", messenger.publish_odom_, false);
+    private_node.param<bool>("publish_tf", messenger.publish_tf_, false);  // 默认不发布轮式里程计
     
     if (messenger.publish_odom_) {
         ROS_INFO("Wheel odometry publishing is ENABLED");

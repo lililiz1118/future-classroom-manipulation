@@ -1,23 +1,86 @@
 <launch>
-        <!-- run pointcloud_to_laserscan node -->
-    <node pkg="pointcloud_to_laserscan" type="pointcloud_to_laserscan_node" name="pointcloud_to_laserscan">
-        <remap from="cloud_in" to="/cloud_registered_body"/>
-        
-        <rosparam>
-            transform_tolerance: 0.01
-            min_height: 0.0
-            max_height: 1.0
+  <!-- ============================================================
+       点云 → 2D激光 转换 + 机器人自身回波过滤（导航避障用）
+       2026-07 修复版，修复要点：
+       1) scan 统一转换到 base_link 系（原为 body/雷达系，且高度带
+          [0,1.0] 相对雷达取值：低矮障碍看不见、车上机械臂/结构全在带内）
+       2) 高度带改在 base_link 系下取 [-0.08, 1.2]，
+          既覆盖低矮障碍又不把地面当障碍
+       3) 视场改为全向 360°（原 ±90° 只有前向，车后障碍完全不可见，
+          代价地图后方永远无法清除/标记）
+       4) 新增 BoxFilter 剔除机械臂/控制箱等自身回波 ——
+          这是 "trajectory is not feasible" 与
+          "failed to get plan from legal potential" 的主要根源
+       依赖：ros-noetic-laser-filters（工作区曾用过 laser_filters，
+             如缺失：sudo apt install ros-noetic-laser-filters）
+       ============================================================ -->
 
-            angle_min: -1.57 # -M_PI/2
-            angle_max: 1.57 # M_PI/2
-            angle_increment: 0.0087 # M_PI/360.0
-            scan_time: 0.1  # 10Hz 扫描频率
-            range_min: 0.05
-            range_max: 30.0
-            use_inf: true
-            inf_epsilon: 1.0
+  <!-- 自身过滤盒半尺寸（base_link 系，米）。请实测车体+机械臂收拢后的
+       水平投影后微调：盒子必须罩住全部自身结构，但不要大太多 -->
+  <arg name="body_box_x" default="0.45" />
+  <arg name="body_box_y" default="0.35" />
 
-            concurrency_level: 4
-        </rosparam>
-    </node>
+  <!-- 第0步: 重力对齐高度切片 (2026-07-26 第二版修复)
+       在 base_link 系做高度带过滤是两头挤压的死路: 下沿低(-0.08=离地7cm)则
+       履带底盘点头θ°时前方d米地面 z=-0.151+d·sinθ 钻进带内(路径障碍尾迹/
+       自围城); 下沿高(+0.05=离地20cm)又切掉雷达水平线(离地17cm)附近最密的
+       返点, 镂空椅腿重新隐身、真障碍不停车。
+       改在 FAST-LIO 的 odom 系(重力对齐, 俯仰不影响)切z: 地面恒为 z≈-0.173,
+       保留 z∈[-0.073, 1.177] 即离地10cm~1.35m —— 点头免疫 + 找回椅腿密集返点。
+       注: 假设单层平坦地面; FAST-LIO 的 z 向缓慢漂移会移动切片, 室内单次
+       运行通常<5cm, 10cm 余量可覆盖; 若长时间运行后出现整片地面障碍, 重启定位即可 -->
+  <node pkg="nodelet" type="nodelet" name="cloud_z_slice"
+        args="standalone pcl/PassThrough" output="screen">
+    <remap from="~input" to="/cloud_registered"/>
+    <remap from="~output" to="/cloud_for_nav"/>
+    <rosparam>
+      filter_field_name: z
+      filter_limit_min: -0.073
+      filter_limit_max: 1.177
+    </rosparam>
+  </node>
+
+  <node pkg="pointcloud_to_laserscan" type="pointcloud_to_laserscan_node" name="pointcloud_to_laserscan">
+    <remap from="cloud_in" to="/cloud_for_nav"/>
+    <remap from="scan" to="/scan_raw"/>
+
+    <rosparam>
+      target_frame: base_link
+      transform_tolerance: 0.1
+      # 高度切片已在上游 odom 系完成(点头免疫), 此处放开不再二次过滤
+      min_height: -2.0
+      max_height: 3.0
+
+      angle_min: -3.14159
+      angle_max: 3.14159
+      angle_increment: 0.0087
+      scan_time: 0.1
+      range_min: 0.05
+      range_max: 20.0
+      use_inf: true
+      inf_epsilon: 1.0
+
+      concurrency_level: 4
+    </rosparam>
+  </node>
+
+  <!-- 剔除自身回波：删除 base_link 周围盒内的点，输出 /scan 供代价地图使用 -->
+  <node pkg="laser_filters" type="scan_to_scan_filter_chain" name="body_scan_filter" respawn="true">
+    <remap from="scan" to="/scan_raw"/>
+    <remap from="scan_filtered" to="/scan"/>
+    <rosparam subst_value="true">
+      scan_filter_chain:
+        - name: robot_body_box_mask
+          type: laser_filters/LaserScanBoxFilter
+          params:
+            box_frame: base_link
+            min_x: -$(arg body_box_x)
+            max_x: $(arg body_box_x)
+            min_y: -$(arg body_box_y)
+            max_y: $(arg body_box_y)
+            min_z: -0.1
+            max_z: 0.1
+            invert: false
+    </rosparam>
+  </node>
 </launch>

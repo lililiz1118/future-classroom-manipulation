@@ -31,7 +31,8 @@ public:
     std::string base_frame_;
 
     bool simulated_robot_ = false;
-    bool publish_odom_ = false;  // 是否发布轮式里程计
+    bool publish_odom_ = false;
+    bool publish_tf_ = false;  // 是否发布轮式里程计
     int sim_control_rate_ = 50;
 
     void SetupSubscription();
