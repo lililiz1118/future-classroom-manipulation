@@ -25,6 +25,15 @@ class AG95NoInit(AG95):
             initCrc=0xFFFF,
             xorOut=0x0000,
         )
+        self._initialized = False
+
+    def initialize(self):
+        """手动初始化夹爪（断电重启后必须调用）"""
+        if self._initialized:
+            return
+        self.init_state()       # 写 0xA5 到 0x0100
+        self.init_feedback()    # 等待 0x0200 != 0 且 != 2
+        self._initialized = True
 
     def read_register(self, modbus_high_addr, modbus_low_addr):
         command = [0x01, 0x03, modbus_high_addr, modbus_low_addr, 0x00, 0x01]

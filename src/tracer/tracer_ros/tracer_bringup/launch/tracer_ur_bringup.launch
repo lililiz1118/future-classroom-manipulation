@@ -13,7 +13,7 @@
   <arg name="stopped_controllers"     default="ur_arm_pos_joint_traj_controller ur_arm_joint_group_vel_controller" doc="Controllers that are initally loaded, but not started."/>
   <!-- Robot Specific Parameters -->
   <arg name="controller_config_file"  default="$(find tracer_bringup)/config/ur3_controllers.yaml" doc="Config file used for defining the ROS-Control controllers."/>
-  <arg name="kinematics_config"       default="$(eval optenv('TRACER_UR_KINEMATICS_CONFIG', find('tracer_bringup')+'/config/default_kinematics.yaml'))" doc="Kinematics config file used for calibration correction. This will be used to verify the robot's calibration is matching the robot_description."/>
+  <arg name="kinematics_config"       default="$(eval optenv('TRACER_UR_KINEMATICS_CONFIG', find('tracer_bringup')+'/config/ur3_calibration.yaml'))" doc="Kinematics config file used for calibration correction. This will be used to verify the robot's calibration is matching the robot_description."/>
   <!-- Wrist Tool Parameters -->
   <!-- <arg name="3f_gripper_enabled"         default="$(optenv TRACER_UR_3F_FINGER_GRIPPER_ENABLED 0)" /> -->
   <arg name="gripper_enabled"         default="$(optenv TRACER_UR_GRIPPER_ENABLED 0)" />

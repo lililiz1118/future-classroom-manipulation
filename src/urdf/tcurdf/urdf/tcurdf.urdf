@@ -189,9 +189,12 @@
 
   <!-- UR3 -->
   <xacro:arg name="ur3_enable"           default="$(optenv UR3_ENABLED 1)" />
+  <xacro:arg name="ur3_kinematics_config"
+             default="$(find ur_description)/config/ur3/default_kinematics.yaml" />
   <xacro:if value="$(arg ur3_enable)">
     <xacro:include filename="$(find ur_description)/urdf/inc/ur3_macro.xacro" />
-    <xacro:ur3_robot prefix="ur_arm_" />
+    <xacro:ur3_robot prefix="ur_arm_"
+                    kinematics_parameters_file="$(arg ur3_kinematics_config)" />
     <joint  name="ur3_mount_joint"
       type="fixed">
       <origin

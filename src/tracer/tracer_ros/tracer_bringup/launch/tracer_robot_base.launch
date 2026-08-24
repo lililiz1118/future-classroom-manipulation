@@ -1,4 +1,10 @@
 <launch>
+    <arg name="ur3_kinematics_config"
+     default="$(find tracer_bringup)/config/ur3_calibration.yaml" />
+
+    <!-- 可选的 D455：默认关闭，需要时通过 enable_d455:=true 开启 -->
+    <arg name="enable_d455" default="false" />
+
     <!-- 自动配置 CAN0 波特率，必须在底盘驱动之前完成 -->
     <node pkg="tracer_bringup" type="setup_can0.sh" name="setup_can0" output="screen" />
     <include file="$(find tracer_base)/launch/tracer_base.launch" >
@@ -8,7 +14,7 @@
     </include>
     <!--include file="$(find tracer_description)/launch/load_nav_model.launch" /-->
 
-    <param name="robot_description" command="$(find xacro)/xacro '$(find tcurdf)/urdf/tcurdf.urdf'" />
+    <param name="robot_description" command="$(find xacro)/xacro '$(find tcurdf)/urdf/tcurdf.urdf' ur3_kinematics_config:=$(arg ur3_kinematics_config)" />
     <node name="robot_state_publisher" pkg="robot_state_publisher" type="robot_state_publisher" />
     <!-- <node name="joint_state_publisher" pkg="joint_state_publisher" type="joint_state_publisher" /> -->
 
@@ -19,13 +25,14 @@
     <include file="$(find fdilink_ahrs)/launch/ahrs_data.launch" > </include>
 
     <!-- D455 -->
-    <include file="$(find realsense2_camera)/launch/rs_camera_d455.launch" > </include>
+    <include file="$(find realsense2_camera)/launch/rs_camera_d455.launch"
+         if="$(arg enable_d455)"> </include>
 
     <!-- D405 -->
     <include file="$(find realsense2_camera)/launch/rs_camera_d405.launch" > </include>
 
     <!-- 延时6秒再启动服务，保证相机初始化完毕 -->
     <node pkg="camera_control" type="get_d405_photo_srv.py" name="get_d405_photo_srv" output="screen" launch-prefix="bash -c 'sleep 6; $0 $@'" /> 
-    <node pkg="camera_control" type="get_d455_photo_srv.py" name="get_d455_photo_srv" output="screen" launch-prefix="bash -c 'sleep 6; $0 $@'" /> 
+    <node pkg="camera_control" type="get_d455_photo_srv.py" name="get_d455_photo_srv" output="screen" if="$(arg enable_d455)" launch-prefix="bash -c 'sleep 6; $0 $@'" />
 
 </launch>
