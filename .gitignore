@@ -12,6 +12,7 @@ __pycache__/
 .Python
 env/
 venv/
+.venv/
 ENV/
 env.bak/
 venv.bak/
@@ -74,6 +75,21 @@ docs/_build/
 # 备份文件
 *.orig
 *.rej
+*.bak
+*.save
+*.pre_codex_*
+
+# Workspace archives and runtime/debug residue
+/src.zip
+/src_backup/
+/src/tracer_navigation./
+/src/FAST_LIO/PCD/
+/src/FAST_LIO/Log/
+/src/FAST_LIO/doc/
+/src/FAST_LIO/.github/
+/src/chess_robot/config/_debug_*
+/src/FAST_LIO_LOCALIZATION/PCD/map_v11.pgm
+/src/FAST_LIO_LOCALIZATION/PCD/map_v11.yaml
 
 # 系统文件
 .fuse_hidden*
