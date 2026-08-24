@@ -1,0 +1,7 @@
+<library path="lib/libmppi_local_planner">
+  <class name="mppi_local_planner/MPPILocalPlanner"
+         type="mppi_local_planner::MPPILocalPlanner"
+         base_class_type="nav_core::BaseLocalPlanner">
+    <description>SA-MPPI local planner for move_base.</description>
+  </class>
+</library>
