@@ -80,3 +80,6 @@ docs/_build/
 .directory
 .Trash-*
 .nfs*
+
+# Isolated Codex development worktrees
+.worktrees/
