@@ -127,12 +127,15 @@ tracer_ws/src/chess_robot/
 - `compensate_gripper_offset(target_xyz, target_q, gripper_ee_xyz, gripper_ee_q)` → 法兰目标补偿
 - `quat2rotvec(quat)` → 四元数→UR旋转矢量
 
-### 手眼标定（来自原项目 `ur3_grab.py`，⚠️ 尚未验证）
+### 手眼标定（来自原项目 `ur3_grab.py`，❌ 当前验证失败）
 ```python
-# ⚠️ 未验证 — 使用前必须用 freedrive 实际测试
+# ❌ 2026-06-09 验证误差约 323-335 mm，不可用于自主运动
 ee_cam_xyz = np.array([-0.009597337799696761, -0.07408851538404479, 0.01670505075735617])
 ee_cam_q   = np.array([0.0006344396200247934, -6.58198103146157e-05, 0.006961144575743825, 0.999975567511685])
 ```
+
+原始验证记录保存在 `config/hand_eye_verify.json`。重新标定并把多姿态验证误差
+降到可接受范围前，禁止使用该变换执行抓取或其他自主运动。
 
 ### 安全位姿（✅ 已验证）
 ```python
@@ -151,7 +154,7 @@ ur_home_quat = [0.00833616, 0.68928081, -0.00361613, -0.7244373]
 - **ROS**: Noetic
 - **Python**: 3.10 (conda: `global_3.10`)
 - **Conda 路径**: `/home/jt001/.conda/envs/global_3.10/bin/python3` (机器人电脑上)
-- **SSHFS**: `/home/yuan/robot_ssh/` 映射到 `jt001@192.168.131.1:/home/jt001/`
+- **SSHFS**: `/home/yuan/robot_ssh/` 映射到 `jt001@172.20.10.7:/home/jt001/`
 - **UR 臂 IP**: `192.168.131.3`
 - **DH 夹爪**: USB 串口 `/dev/dh_gripper_usb` (Modbus, 115200 baud)
 
