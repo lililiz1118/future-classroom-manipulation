@@ -200,4 +200,6 @@ install(DIRECTORY config launch scripts
 # endif()
 
 ## Add folders to be run by python nosetests
-# catkin_add_nosetests(test)
+if(CATKIN_ENABLE_TESTING)
+  catkin_add_nosetests(test/test_calibrated_ur_launch.py)
+endif()

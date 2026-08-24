@@ -15,10 +15,19 @@
 
   <!-- 可覆盖的机械臂 IP -->
   <arg name="robot_ip" default="192.168.131.3" doc="UR3 机械臂 IP 地址"/>
+  <arg name="robot_description_file"
+       default="$(find tcurdf)/urdf/tcurdf.urdf"/>
+  <arg name="ur3_kinematics_config"
+       default="$(find tracer_bringup)/config/ur3_calibration.yaml"/>
+
+  <!-- ros_control controllers require the calibrated model before they load. -->
+  <param name="robot_description"
+         command="$(find xacro)/xacro '$(arg robot_description_file)' ur3_kinematics_config:=$(arg ur3_kinematics_config)"/>
 
   <!-- ═══ Step 1: 启动 UR ROS Driver ═══ -->
   <include file="$(find tracer_bringup)/launch/tracer_ur_bringup.launch">
     <arg name="robot_ip" value="$(arg robot_ip)"/>
+    <arg name="kinematics_config" value="$(arg ur3_kinematics_config)"/>
   </include>
 
   <!-- ═══ Step 2-5: Dashboard 启动序列 ═══ -->
