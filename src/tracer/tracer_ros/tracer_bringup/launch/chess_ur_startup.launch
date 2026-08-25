@@ -1,0 +1,53 @@
+<?xml version="1.0"?>
+<launch>
+
+  <!-- ═══════════════════════════════════════════════════════════════
+   UR3 中国象棋机器人 — 机械臂一键启动
+   启动顺序:
+     1. UR ROS Driver (tracer_ur_bringup)
+     2. dashboard/power_on      — 上电
+     3. dashboard/brake_release — 释放刹车
+     4. dashboard/load_program  — 加载 ext_ctl.urp
+     5. dashboard/play          — 运行远程控制程序
+
+   用法: roslaunch tracer_bringup chess_ur_startup.launch
+  ═══════════════════════════════════════════════════════════════════ -->
+
+  <!-- 可覆盖的机械臂 IP -->
+  <arg name="robot_ip" default="192.168.131.3" doc="UR3 机械臂 IP 地址"/>
+  <arg name="robot_description_file"
+       default="$(find tcurdf)/urdf/tcurdf.urdf"/>
+  <arg name="ur3_kinematics_config"
+       default="$(find tracer_bringup)/config/ur3_calibration.yaml"/>
+
+  <!-- ros_control controllers require the calibrated model before they load. -->
+  <param name="robot_description"
+         command="$(find xacro)/xacro '$(arg robot_description_file)' ur3_kinematics_config:=$(arg ur3_kinematics_config)"/>
+
+  <!-- ═══ Step 1: 启动 UR ROS Driver ═══ -->
+  <include file="$(find tracer_bringup)/launch/tracer_ur_bringup.launch">
+    <arg name="robot_ip" value="$(arg robot_ip)"/>
+    <arg name="kinematics_config" value="$(arg ur3_kinematics_config)"/>
+  </include>
+
+  <!-- ═══ Step 2-5: Dashboard 启动序列 ═══ -->
+  <!-- 延时 8 秒等 UR driver 完全起来后再执行 dashboard 调用 -->
+  <node name="ur_dashboard_startup"
+        pkg="tracer_bringup"
+        type="ur_dashboard_startup.sh"
+        output="screen"
+        required="false"
+        launch-prefix="bash -c 'sleep 8; exec $0 $@'">
+  </node>
+
+  <!-- ═══ Step 6: DH 夹爪初始化 ═══ -->
+  <!-- 延时 15 秒，等夹爪上电稳定后执行一次性初始化 -->
+  <node name="dh_gripper_init"
+        pkg="tracer_bringup"
+        type="gripper_init.py"
+        output="screen"
+        required="false"
+        launch-prefix="bash -c 'sleep 15; exec $0 $@'">
+  </node>
+
+</launch>

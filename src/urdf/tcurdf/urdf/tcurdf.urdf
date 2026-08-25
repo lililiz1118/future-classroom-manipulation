@@ -1,0 +1,371 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- This URDF was automatically created by SolidWorks to URDF Exporter! Originally created by Stephen Brawner (brawner@gmail.com) 
+     Commit Version: 1.6.0-4-g7f85cfe  Build Version: 1.6.7995.38578
+     For more information, please see http://wiki.ros.org/sw_urdf_exporter -->
+
+<robot xmlns:xacro="http://wiki.ros.org/xacro" name="tcurdf">
+  <link name="base_link" />
+  <joint name="base_inertia_joint" type="fixed">
+    <origin
+      xyz="0 0 0"
+      rpy="0 0 0" />
+    <parent
+      link="base_link" />
+    <child
+      link="base_inertia_link" />
+    <axis
+      xyz="0 1 0" />
+  </joint>
+
+  <link name="base_inertia_link">
+    <inertial>
+      <origin
+        xyz="-0.035108516814885 -0.00209027218200159 -0.049710792042142"
+        rpy="0 0 0" />
+      <mass
+        value="3.56953084649748" />
+      <inertia
+        ixx="0.0703334081055495"
+        ixy="0.000423266450961716"
+        ixz="-0.000439625349903713"
+        iyy="0.0601938657608358"
+        iyz="0.000249448241164554"
+        izz="0.125967804622452" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://tcurdf/meshes/base_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://tcurdf/meshes/base_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+
+  <link name="left_wheel_link">
+    <inertial>
+      <origin
+        xyz="-0.00015822 0.0049483 -0.00010209"
+        rpy="0 0 0" />
+      <mass
+        value="0.29518" />
+      <inertia
+        ixx="0.00037521"
+        ixy="-3.8666E-07"
+        ixz="-3.4254E-07"
+        iyy="0.00069359"
+        iyz="5.6242E-09"
+        izz="0.00037508" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://tcurdf/meshes/left_wheel_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://tcurdf/meshes/left_wheel_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="left_wheel_joint" type="fixed">
+    <origin
+      xyz="-0.0188184404027057 -0.263700000000008 -0.0905000000669803"
+      rpy="0 0 0" />
+    <parent
+      link="base_link" />
+    <child
+      link="left_wheel_link" />
+    <axis
+      xyz="0 1 0" />
+  </joint>
+  <link name="right_wheel_link">
+    <inertial>
+      <origin
+        xyz="1.9643E-05 -0.0049483 0.00018727"
+        rpy="0 0 0" />
+      <mass
+        value="0.29518" />
+      <inertia
+        ixx="0.00037539"
+        ixy="1.7967E-07"
+        ixz="-2.5824E-07"
+        iyy="0.00069359"
+        iyz="-3.4252E-07"
+        izz="0.00037491" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://tcurdf/meshes/right_wheel_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://tcurdf/meshes/right_wheel_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="right_wheel_joint" type="fixed">
+    <origin
+      xyz="-0.0188184403389711 0.263699999999992 -0.0904999999632834"
+      rpy="0 0 0" />
+    <parent
+      link="base_link" />
+    <child
+      link="right_wheel_link" />
+    <axis
+      xyz="0 -1 0" />
+  </joint>
+  <link name="mount_link">
+  </link>
+  <joint name="mount_joint" type="fixed">
+    <origin
+      xyz="0 0 0.016"
+      rpy="0 0 0" />
+    <parent
+      link="base_link" />
+    <child
+      link="mount_link" />
+    <axis
+      xyz="0 0 0" />
+  </joint>
+
+  <!-- 双层支架 top_plate -->
+  <xacro:include filename="$(find tuplateurdf)/urdf/tuplateurdf.urdf.xacro"/>
+  <xacro:tuplateurdf> </xacro:tuplateurdf>
+  <joint name="plate_mount_joint"
+    type="fixed">
+    <origin
+      xyz="0 0 0.0"
+      rpy="0 0 0" />
+    <parent
+      link="mount_link" />
+    <child
+      link="plate_base_link" />
+    <axis
+      xyz="0 0 0" />
+  </joint>
+
+  <!-- UR3 -->
+  <xacro:arg name="ur3_enable"           default="$(optenv UR3_ENABLED 1)" />
+  <xacro:arg name="ur3_kinematics_config"
+             default="$(find ur_description)/config/ur3/default_kinematics.yaml" />
+  <xacro:if value="$(arg ur3_enable)">
+    <xacro:include filename="$(find ur_description)/urdf/inc/ur3_macro.xacro" />
+    <xacro:ur3_robot prefix="ur_arm_"
+                    kinematics_parameters_file="$(arg ur3_kinematics_config)" />
+    <joint  name="ur3_mount_joint"
+      type="fixed">
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 -1.57" />
+      <parent
+        link="arm_0_mount_link" />
+      <child
+        link="ur_arm_base_link" />
+      <axis
+        xyz="0 0 0" />
+    </joint> 
+
+    <!-- 机械臂腕部相机 wrist_camera D405 -->
+    <link  name="ur_wrist_plate_arm_link">
+        <inertial>
+          <origin
+            xyz="0.00125 2.77555756156289E-17 0.0231023127437202"
+            rpy="0 0 0" />
+          <mass
+            value="0.00877581178067328" />
+          <inertia
+            ixx="1.08059004611897E-05"
+            ixy="6.35274710440725E-22"
+            ixz="-1.79994501291539E-21"
+            iyy="8.87516172038075E-06"
+            iyz="-3.17637355220363E-21"
+            izz="1.93988021141378E-06" />
+        </inertial>
+        <visual>
+          <origin
+            xyz="0 0 0"
+            rpy="0 0 0" />
+          <geometry>
+            <mesh
+              filename="package://tuplateurdf/meshes/ur_wrist_plate_arm_link.STL" />
+          </geometry>
+          <material
+            name="">
+            <color
+              rgba="1 1 1 1" />
+          </material>
+        </visual>
+        <collision>
+          <origin
+            xyz="0 0 0"
+            rpy="0 0 0" />
+          <geometry>
+            <mesh
+              filename="package://tuplateurdf/meshes/ur_wrist_plate_arm_link.STL" />
+          </geometry>
+        </collision>
+    </link>
+    <joint  name="ur_wrist_plate_arm_joint"   type="fixed">
+      <origin
+        xyz="0.0 0.0 0.0 "
+        rpy="1.57 -1.57 0.0 "  />
+      <parent
+        link="ur_arm_wrist_3_link" />
+      <child
+        link="ur_wrist_plate_arm_link" />
+      <axis
+        xyz="0 0 0" />
+    </joint>
+    <link  name="ur_wrist_plate_gripper_mount_link">
+    </link>
+    <!-- xyz="0.0025 0 0" -->
+    <joint  name="ur_wrist_plate_gripper_mount_joint"  type="fixed">
+      <origin
+        
+        xyz="0.0025 0 0"
+        rpy="0 0 0" />
+      <parent
+        link="ur_wrist_plate_arm_link" />
+      <child
+        link="ur_wrist_plate_gripper_mount_link" />
+      <axis
+        xyz="0 0 0" />
+    </joint>
+    <link name="camera_1_screw_virtual_link">
+      <inertial>
+        <origin
+          xyz="0.0032855344440802 -7.89780460070666E-05 0.0210850312039583"
+          rpy="0 0 0" />
+        <mass
+          value="1.07678737096583" />
+        <inertia
+          ixx="0.000301366433802186"
+          ixy="-4.16990522970616E-07"
+          ixz="2.96523714844121E-07"
+          iyy="0.000197188318090099"
+          iyz="-1.11590830069168E-08"
+          izz="0.00019743294906718" />
+      </inertial>
+      <visual>
+        <origin
+          xyz="0 0 0"
+          rpy="0 0 0" />
+        <geometry>
+          <mesh
+            filename="package://tuplateurdf/meshes/camera_1_screw_virtual_link.STL" />
+        </geometry>
+        <material
+          name="">
+          <color
+            rgba="1 0.941176470588235 0.67843137254902 1" />
+        </material>
+      </visual>
+      <collision>
+        <origin
+          xyz="0 0 0"
+          rpy="0 0 0" />
+        <geometry>
+          <mesh
+            filename="package://tuplateurdf/meshes/camera_1_screw_virtual_link.STL" />
+        </geometry>
+      </collision>
+    </link>
+    <joint  name="camera_1_screw_virtual_joint"  type="fixed">
+      <origin
+        xyz="0.01085 0 0.0501615735829534"
+        rpy="0 0 0" />
+      <parent
+        link="ur_wrist_plate_arm_link" />
+      <child
+        link="camera_1_screw_virtual_link" />
+      <axis
+        xyz="0 0 0" />
+    </joint>
+  </xacro:if>
+
+  <!-- 夹爪AG95 -->
+  <xacro:arg name="gripper_enable"           default="$(optenv GRIPPER_ENABLED 1)" />
+  <xacro:if value="$(arg gripper_enable)">
+    <xacro:include filename="$(find dh_robotics_ag95_description)/urdf/dh_robotics_ag95_gripper.urdf.xacro" />
+    <xacro:dh_robotics_ag95_gripper prefix="" parent="ur_wrist_plate_gripper_mount_link" >
+        <origin xyz="0 0 0 " rpy="1.57 0 1.57  "/>
+    </xacro:dh_robotics_ag95_gripper>
+  </xacro:if>
+
+  <!--
+    Add an Intel RealSense family camera.  By default this is a D435, but can be changed with the
+    TRACER_REALSENSE_MODEL environment variable. Valid model designations are:
+    - d435 (default)
+    - d435i
+    - d415
+    - d455
+    Note: If two realsense's are included, both must be the same model type.
+  -->
+  <xacro:include filename="$(find tcurdf)/urdf/inc/realsense.urdf.xacro" />
+  <!-- Primary Realsense Parameters -->
+  <xacro:property name="rs_enabled" value="$(optenv TRACER_REALSENSE 1)"/>
+  <xacro:property name="rs_model"   value="$(optenv TRACER_REALSENSE_MODEL d455)"/>
+  <xacro:property name="rs_topic"   value="$(optenv TRACER_REALSENSE_TOPIC d455)" />
+  <!-- <xacro:property name="rs_mount"   value="$(optenv TRACER_REALSENSE_MOUNT front)" /> -->
+  <xacro:property name="rs_prefix"  value="$(optenv TRACER_REALSENSE_PREFIX d455)" />
+  <xacro:property name="rs_parent"  value="$(optenv TRACER_REALSENSE_PARENT camera_0_screw_virtual_link)" />
+  <xacro:property name="rs_xyz"     value="$(optenv TRACER_REALSENSE_OFFSET 0.0 0 0)" />
+  <xacro:property name="rs_rpy"     value="$(optenv TRACER_REALSENSE_RPY 0 0 0)" />
+
+  <!-- Includes Required for `realsense_sensor` -->
+  <xacro:include filename="$(find realsense2_description)/urdf/_d455.urdf.xacro" />
+
+  <xacro:if value="${rs_enabled}">
+    <xacro:realsense_sensor rs_model="${rs_model}"
+                            prefix="${rs_prefix}"
+                            parent="${rs_parent}"
+                            topic="${rs_topic}"
+                            include="0">
+      <origin xyz="${rs_xyz}" rpy="${rs_rpy}"/>
+    </xacro:realsense_sensor>
+  </xacro:if>
+
+</robot>

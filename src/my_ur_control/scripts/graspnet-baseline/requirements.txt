@@ -1,0 +1,5 @@
+numpy==1.23.0
+scipy
+open3d>=0.8
+Pillow
+tqdm

@@ -1,0 +1,11 @@
+moveit_setup_assistant_config:
+  URDF:
+    package: tcurdf
+    relative_path: urdf/tcurdf.xacro
+    xacro_args: ""
+  SRDF:
+    relative_path: config/tcurdf.srdf
+  CONFIG:
+    author_name: li
+    author_email: li@li.com
+    generated_timestamp: 1753270747

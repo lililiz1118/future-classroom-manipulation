@@ -1,0 +1,21 @@
+<launch>
+  <!-- 发布PCD文件为点云
+  <node pkg="pcl_ros" type="pcd_to_pointcloud" name="pcd_publisher" args="/home/jt001/fastlio_ws/src/FAST_LIO/PCD/scans.pcd">
+    <param name="frame_id" value="world" />
+    <param name="publish_rate" value="1.0" />
+    <remap from="cloud_pcd" to="/cloud_pcd"/>
+  </node> -->
+
+  <!-- octomap server -->
+  <node pkg="octomap_server" type="octomap_server_node" name="octomap_server">
+    <param name="resolution" value="0.1" />
+    <param name="frame_id" value="odom" />
+    <param name="sensor_model/max_range" value="1000.0" />
+    <param name="latch" value="true" />
+    <param name="pointcloud_max_z" value="1" />
+    <param name="pointcloud_min_z" value="0" />
+    <remap from="cloud_in" to="/cloud_registered" />
+
+    <param name="publish_2d_map" value="true"/>
+  </node>
+</launch>

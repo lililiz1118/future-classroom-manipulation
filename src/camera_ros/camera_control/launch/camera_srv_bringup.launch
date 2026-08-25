@@ -1,0 +1,4 @@
+<launch>
+    <node pkg="camera_control" type="get_d405_photo_srv.py" name="get_d405_photo_srv" output="screen" /> 
+    <node pkg="camera_control" type="get_d455_photo_srv.py" name="get_d455_photo_srv" output="screen" /> 
+</launch>

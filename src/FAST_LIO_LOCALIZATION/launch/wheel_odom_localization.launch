@@ -1,0 +1,58 @@
+<launch>
+    <!-- 点云转激光扫描 -->
+    <include file="$(find fast_lio_localization)/launch/PointsCloud2toLaserscan.launch"/>
+
+    <!-- FAST-LIO配置参数 -->
+    <rosparam command="load" file="$(find fast_lio_localization)/config/mid360.yaml" />
+
+    <!-- fastlio -->
+    <param name="feature_extract_enable" type="bool" value="0"/>
+    <param name="point_filter_num" type="int" value="3"/>
+    <param name="max_iteration" type="int" value="3" />
+    <param name="filter_size_surf" type="double" value="0.5" />
+    <param name="filter_size_map" type="double" value="0.5" />
+    <param name="cube_side_length" type="double" value="1000" />
+    <param name="runtime_pos_log_enable" type="bool" value="0" />
+    <node pkg="fast_lio" type="fastlio_mapping" name="laserMapping" output="screen" /> 
+
+    <!-- 底盘驱动节点 - 发布轮式里程计 -->
+    <node pkg="tracer_base" type="tracer_base_node" name="tracer_base_node" output="screen">
+        <param name="port_name" value="can0" />
+        <param name="odom_frame" value="wheel_odom_frame" />
+        <param name="base_frame" value="base_link" />
+        <param name="publish_odom" value="true" />  <!-- 启用轮式里程计发布 -->
+    </node>
+
+    <!-- 加载全局点云地图 -->
+    <arg name="map" default="/home/jt001/fastlio_ws/src/FAST_LIO/PCD/scans_11_15.pcd" />
+    <node pkg="pcl_ros" type="pcd_to_pointcloud" name="map_publisher" output="screen"
+          args="$(arg map) 5 _frame_id:=map cloud_pcd:=pcd_map" />
+
+    <!-- 轮式里程计+点云配准定位节点 (替代amcl) -->
+    <node pkg="fast_lio_localization" type="wheel_odom_localization.py" name="wheel_odom_localization" 
+          output="screen" required="true">
+        <!-- 定位参数 -->
+        <param name="map_voxel_size" value="0.1" />
+        <param name="scan_voxel_size" value="0.05" />
+        <param name="localization_frequency" value="0.5" />
+        <param name="publish_frequency" value="50" />
+        <param name="localization_threshold" value="0.8" />
+        <param name="max_registration_count" value="5" />
+        
+        <!-- LiDAR视野参数 -->
+        <param name="fov" value="6.28319" />  <!-- 360度 = 2*pi -->
+        <param name="fov_far" value="30.0" />  <!-- 30米 -->
+    </node>
+
+    <!-- 静态TF: body(LiDAR) -> base_link(底盘中心) -->
+    <node pkg="tf2_ros" type="static_transform_publisher" name="tf_body_to_baselink"
+          args="-0.255 0 -0.022 0 0 0 body base_link" />
+
+    <group if="true">
+	    <node launch-prefix="nice" pkg="rviz" type="rviz" name="rviz" args="-d $(find fast_lio_localization)/rviz_cfg/localization.rviz" />
+	</group>
+ 
+</launch>
+
+
+

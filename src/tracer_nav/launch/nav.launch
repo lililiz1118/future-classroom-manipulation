@@ -1,0 +1,27 @@
+<launch>
+    
+    <arg name="local_planner" default="true"/> <!-- true: teb, false: dwa -->
+
+    <!-- 从定位里程计估算速度 (TEB 需要带速度的里程计) -->
+    <node pkg="tracer_nav" type="fastlio_speed.py" name="fastlio_speed" output="screen" />
+
+    <node pkg="move_base" type="move_base" name="move_base">
+
+        <remap from="odom" to="localization"/>
+        <rosparam file="$(find tracer_nav)/config/global_costmap_params.yaml" command="load" />
+        <rosparam file="$(find tracer_nav)/config/local_costmap_params.yaml" command="load" />
+
+        <param name="base_global_planner" value="navfn/NavfnROS" /> 
+
+        <param name="NavfnROS/allow_unknown" value="false" />
+        <param name="NavfnROS/default_tolerance" value="0.2" />
+        <param name="base_local_planner" value="teb_local_planner/TebLocalPlannerROS" if="$(arg local_planner)"/>
+        <rosparam file="$(find tracer_nav)/config/teb_local_planner_params.yaml" command="load" if="$(arg local_planner)"/>
+
+        <param name="base_local_planner" value="dwa_local_planner/DWAPlannerROS" unless="$(arg local_planner)"/>
+        <rosparam file="$(find tracer_nav)/config/dwa_local_planner_params.yaml" command="load" unless="$(arg local_planner)"/>
+
+        <param name="controller_frequency" value="10.0" />
+    </node>
+
+</launch>

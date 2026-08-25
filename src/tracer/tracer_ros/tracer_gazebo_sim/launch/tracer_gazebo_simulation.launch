@@ -1,0 +1,40 @@
+<launch>
+
+    <!-- 将 Urdf 文件的内容加载到参数服务器 -->
+    <param name="robot_description" command="$(find xacro)/xacro $(find tcurdf)/urdf/tcurdf.xacro" />
+    <!-- 启动 gazebo -->
+    <include file="$(find gazebo_ros)/launch/empty_world.launch">
+        <!-- <arg name="world_name" value="/home/ge/catkin_src/src/wpr_simulation/worlds/robocup2023.world"/> -->
+        <!-- <arg name="world_name" value="/home/h/robocup_map/gazebo/models/robocup2023.world"/> -->
+        <arg name="paused" value="true"/>
+        <arg name="use_sim_time" value="true"/>
+        <arg name="gui" value="true"/>
+        <arg name="headless" value="false"/>
+        <arg name="debug" value="false"/>
+        <arg name="recording" value="false"/>
+    </include>
+
+    <!-- <include file="/home/jt001/tracer_ws/src/ur_ros/universal_robot-noetic-devel/ur_gazebo/launch/ur3_bringup.launch" /> -->
+
+    <!-- PID 参数
+    <rosparam>
+        gazebo_ros_control:
+          pid_gains:
+            ur_arm_shoulder_pan_joint: {p: 100.0, i: 0.0, d: 10.0}
+            ur_arm_shoulder_lift_joint: {p: 100.0, i: 0.0, d: 10.0}
+            ur_arm_elbow_joint: {p: 80.0, i: 0.0, d: 8.0}
+            ur_arm_wrist_1_joint: {p: 30.0, i: 0.0, d: 3.0}
+            ur_arm_wrist_2_joint: {p: 30.0, i: 0.0, d: 3.0}
+            ur_arm_wrist_3_joint: {p: 20.0, i: 0.0, d: 2.0}
+            gripper_finger1_joint: {p: 50.0, i: 0.0, d: 5.0}
+    </rosparam> -->
+
+
+    <!-- 在 gazebo 中显示机器人模型 -->
+    <!-- <node pkg="gazebo_ros" type="spawn_model" name="model" args="-urdf -model mycar -param robot_description -x -3.5 -y -3.5 -Y 1.57"  /> -->
+    <node pkg="gazebo_ros" type="spawn_model" name="model" args="-urdf -model mycar -param robot_description -x 0 -y 0 -z 0.1"  />
+
+    <node pkg="joint_state_publisher" type="joint_state_publisher" name="joint_state_publisher" output="screen" />
+    <node pkg="robot_state_publisher" type="robot_state_publisher" name="robot_state_publisher" output="screen" />
+
+</launch>

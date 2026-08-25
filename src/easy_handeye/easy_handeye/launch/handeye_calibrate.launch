@@ -1,0 +1,20 @@
+<launch>
+
+  <!-- <include file="$(find moveit_config)/launch/demo.launch"/> -->
+
+  <include file="$(find easy_handeye)/launch/calibrate.launch">
+    <arg name="eye_on_hand" value="true"/>
+
+    <!-- you can choose any identifier, as long as you use the same for publishing the calibration -->
+    <arg name="namespace_prefix" value="my_eih_calib"/>
+
+    <!-- fill in the following parameters according to your robot's published tf frames -->
+    <arg name="robot_base_frame" value="ur_arm_base_link"/>
+    <arg name="robot_effector_frame" value="ur_arm_wrist_3_link"/>
+
+    <!-- fill in the following parameters according to your tracking system's published tf frames -->
+    <arg name="tracking_base_frame" value="d405_color_optical_frame"/>
+    <arg name="tracking_marker_frame" value="aruco_marker_frame"/>
+    <arg name="move_group" value="arm"/>
+  </include>
+</launch>

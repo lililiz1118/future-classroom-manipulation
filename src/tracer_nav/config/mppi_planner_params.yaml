@@ -1,0 +1,29 @@
+MPPILocalPlannerROS:
+  # 采样参数 (4096 条候选轨迹并行推演，1.5 秒时域)
+  num_samples: 4096
+  time_steps: 30
+  model_dt: 0.05
+
+  # 速度与角速度限制 (严格禁止倒车)
+  max_vel_x: 0.35
+  min_vel_x: 0.0
+  max_vel_theta: 0.60
+  acc_lim_x: 0.50
+  acc_lim_theta: 1.00
+
+  # 探索高斯扰动标准差
+  vx_std: 0.18
+  wz_std: 0.35
+
+  # Softmax 路径积分温度 (越小越贴近最优单条，越大越平滑加权)
+  temperature: 0.25
+
+  # 代价函数权重
+  weight_path: 20.0      # 贴附全局路径权重
+  weight_goal: 15.0      # 终点对齐引力权重
+  weight_obstacle: 40.0  # 障碍物排斥惩罚权重
+  weight_smooth: 2.5     # 速度平滑度权重
+
+  # 目标容差 (差速底盘到达后原地对齐)
+  xy_goal_tolerance: 0.15
+  yaw_goal_tolerance: 0.20

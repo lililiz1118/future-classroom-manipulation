@@ -1,0 +1,7 @@
+<launch>
+
+    <include file="$(find fast_lio)/launch/mapping_mid360.launch" />
+    <include file="$(find tracer_bringup)/launch/pcd2_to_map.launch" />
+
+    
+</launch>

@@ -1,0 +1,60 @@
+<launch>
+  <arg name="rviz" default="true"/>
+  <arg name="rviz_config" default="localization"/>
+  <arg name="use_sim_time" default="false"/>
+  <arg name="map" default="$(find fast_lio_localization)/PCD/south0.05.pcd"/>
+  <arg name="map_2d" default="$(find fast_lio_localization)/PCD/south0.05.yaml"/>
+
+  <arg name="initial_x" default="0.0"/>
+  <arg name="initial_y" default="0.0"/>
+  <arg name="initial_z" default="0.0"/>
+  <arg name="initial_yaw" default="0.0"/>
+  <arg name="initial_pitch" default="0.0"/>
+  <arg name="initial_roll" default="0.0"/>
+
+  <param name="/use_sim_time" value="$(arg use_sim_time)"/>
+  <rosparam command="load" file="$(find fast_lio_localization)/config/mid360.yaml"/>
+
+  <param name="feature_extract_enable" type="bool" value="false"/>
+  <param name="point_filter_num" type="int" value="2"/>
+  <param name="max_iteration" type="int" value="4"/>
+  <param name="filter_size_surf" type="double" value="0.20"/>
+  <param name="filter_size_map" type="double" value="0.20"/>
+  <param name="cube_side_length" type="double" value="1000"/>
+  <param name="runtime_pos_log_enable" type="bool" value="false"/>
+
+  <node pkg="fast_lio" type="fastlio_mapping" name="laserMapping" output="screen"/>
+  <node pkg="fast_lio_localization" type="new_global_localization.py"
+        name="global_localization" output="screen">
+    <param name="freq_localization" value="0.5"/>
+    <param name="localization_th" value="0.60"/>
+    <param name="fov_far" value="30.0"/>
+  </node>
+  <node pkg="fast_lio_localization" type="new_transform_fusion.py"
+        name="transform_fusion" output="screen"/>
+
+  <node pkg="pcl_ros" type="pcd_to_pointcloud" name="map_publisher"
+        output="screen" args="$(arg map) 5 _frame_id:=map cloud_pcd:=pcd_map"/>
+  <node pkg="map_server" type="map_server" name="map_server" args="$(arg map_2d)"/>
+
+  <node pkg="tf2_ros" type="static_transform_publisher"
+        name="tf_odom_to_camerainit" args="0 0 0 0 0 0 odom camera_init"/>
+  <node pkg="tf2_ros" type="static_transform_publisher"
+        name="tf_body_to_baselink" args="-0.255 0 -0.022 0 0 0 body base_link"/>
+  <node pkg="tf2_ros" type="static_transform_publisher"
+        name="tf_base_to_footprint" args="0 0 -0.151 0 0 0 base_link base_footprint"/>
+  <node pkg="tf2_ros" type="static_transform_publisher"
+        name="tf_odom_to_robotodom" args="-0.255 0 -0.022 0 0 0 odom robot_odom"/>
+
+  <node pkg="fast_lio_localization" type="publish_initial_pose.py"
+        name="publish_initial_pose"
+        args="$(arg initial_x) $(arg initial_y) $(arg initial_z) $(arg initial_yaw) $(arg initial_pitch) $(arg initial_roll)"
+        output="screen"/>
+
+  <include file="$(find fast_lio_localization)/launch/PointsCloud2toLaserscan.launch"/>
+
+  <group if="$(arg rviz)">
+    <node launch-prefix="env QT_X11_NO_MITSHM=1" pkg="rviz" type="rviz"
+          name="rviz" args="-d $(find fast_lio_localization)/rviz_cfg/$(arg rviz_config).rviz"/>
+  </group>
+</launch>

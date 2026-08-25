@@ -1,0 +1,2 @@
+KERNEL=="ttyUSB*", ATTRS{idVendor}=="345f", ATTRS{idProduct}=="3020", MODE:="0777", GROUP:="dialout", SYMLINK+="dh_gripper_usb"
+

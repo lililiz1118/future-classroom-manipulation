@@ -1,0 +1,10 @@
+<launch>
+  <arg
+    name="model" />
+
+  <node
+    name="rviz"
+    pkg="rviz"
+    type="rviz"
+    args="-d $(find tcurdf)/displaymodel.rviz" />
+</launch>

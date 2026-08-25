@@ -1,0 +1,11 @@
+footprint: [[0.3, 0.35], [0.3, -0.35], [-0.3, -0.35], [-0.3, 0.35]] 
+obstacle_range: 20.0
+raytrace_range: 20.0
+inflation_radius: 0.6
+observation_sources: base_lidar
+base_lidar: 
+    data_type: LaserScan
+    topic: /scan
+    marking: true 
+    clearing: true
+    

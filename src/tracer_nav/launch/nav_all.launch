@@ -1,0 +1,116 @@
+<launch>
+  <arg name="bringup" default="true"/>
+  <arg name="localization" default="true"/>
+  <arg name="rviz" default="true"/>
+  <arg name="local_planner" default="mppi"/>
+  <arg name="use_navfn" default="false"/>
+  <arg name="guide_manager" default="true"/>
+  <arg name="legacy_waiter" default="false"/>
+  <arg name="legacy_janitor" default="false"/>
+  <arg name="teleop_keyboard" default="true"/>
+  <arg name="start_delay" default="3.0"/>
+
+  <arg name="map_name" default="south0.05"/>
+  <arg name="pcd_map" default="$(find fast_lio_localization)/PCD/$(arg map_name).pcd"/>
+  <arg name="map_2d" default="$(find fast_lio_localization)/PCD/$(arg map_name).yaml"/>
+  <arg name="waypoints_file" default="$(find tracer_nav)/config/waypoints_$(arg map_name).yaml"/>
+
+  <arg name="initial_x" default="0.0"/>
+  <arg name="initial_y" default="0.0"/>
+  <arg name="initial_z" default="0.0"/>
+  <arg name="initial_yaw" default="0.0"/>
+  <arg name="initial_pitch" default="0.0"/>
+  <arg name="initial_roll" default="0.0"/>
+
+  <include if="$(arg bringup)"
+           file="$(find tracer_bringup)/launch/tracer_navigation_base.launch"/>
+
+  <include if="$(arg localization)"
+           file="$(find fast_lio_localization)/launch/tracer_localization.launch">
+    <arg name="map" value="$(arg pcd_map)"/>
+    <arg name="map_2d" value="$(arg map_2d)"/>
+    <arg name="rviz" value="$(arg rviz)"/>
+    <arg name="rviz_config" value="localization"/>
+    <arg name="initial_x" value="$(arg initial_x)"/>
+    <arg name="initial_y" value="$(arg initial_y)"/>
+    <arg name="initial_z" value="$(arg initial_z)"/>
+    <arg name="initial_yaw" value="$(arg initial_yaw)"/>
+    <arg name="initial_pitch" value="$(arg initial_pitch)"/>
+    <arg name="initial_roll" value="$(arg initial_roll)"/>
+  </include>
+
+  <node pkg="tracer_nav" type="fastlio_speed.py" name="fastlio_speed"
+        output="screen"/>
+
+  <node pkg="move_base" type="move_base" name="move_base" output="screen">
+    <remap from="odom" to="localization_speed"/>
+    <remap from="move_base_simple/goal" to="move_base_simple/disabled_goal"/>
+    <rosparam file="$(find tracer_nav)/config/global_costmap_params.yaml"
+              command="load"/>
+    <rosparam file="$(find tracer_nav)/config/local_costmap_params.yaml"
+              command="load"/>
+
+    <param name="base_global_planner" value="global_planner/GlobalPlanner"
+           unless="$(arg use_navfn)"/>
+    <rosparam file="$(find tracer_nav)/config/global_planner_params.yaml"
+              command="load" unless="$(arg use_navfn)"/>
+    <param name="base_global_planner" value="navfn/NavfnROS"
+           if="$(arg use_navfn)"/>
+    <param name="NavfnROS/allow_unknown" value="false" if="$(arg use_navfn)"/>
+    <param name="NavfnROS/default_tolerance" value="0.2" if="$(arg use_navfn)"/>
+
+    <param name="base_local_planner" value="mppi_local_planner/MPPILocalPlannerROS"
+           if="$(eval arg('local_planner') == 'mppi')"/>
+    <rosparam file="$(find tracer_nav)/config/mppi_planner_params.yaml"
+              command="load" if="$(eval arg('local_planner') == 'mppi')"/>
+    <param name="base_local_planner" value="teb_local_planner/TebLocalPlannerROS"
+           if="$(eval arg('local_planner') == 'teb')"/>
+    <rosparam file="$(find tracer_nav)/config/teb_local_planner_params.yaml"
+              command="load" if="$(eval arg('local_planner') == 'teb')"/>
+    <param name="base_local_planner" value="dwa_local_planner/DWAPlannerROS"
+           if="$(eval arg('local_planner') == 'dwa')"/>
+    <rosparam file="$(find tracer_nav)/config/dwa_local_planner_params.yaml"
+              command="load" if="$(eval arg('local_planner') == 'dwa')"/>
+
+    <rosparam param="recovery_behaviors">
+      - name: conservative_reset
+        type: clear_costmap_recovery/ClearCostmapRecovery
+    </rosparam>
+    <param name="conservative_reset/reset_distance" value="3.0"/>
+    <param name="controller_frequency" value="10.0"/>
+    <param name="planner_frequency" value="2.0"/>
+    <param name="planner_patience" value="10.0"/>
+    <param name="controller_patience" value="10.0"/>
+    <param name="oscillation_timeout" value="8.0"/>
+    <param name="oscillation_distance" value="0.3"/>
+    <param name="shutdown_costmaps" value="false"/>
+  </node>
+
+  <!-- guide_manager owns move_base goals. Do not enable legacy_waiter with it. -->
+  <node if="$(arg guide_manager)" pkg="tracer_nav" type="guide_manager.py"
+        name="guide_manager" output="screen" required="true">
+    <param name="waypoints_file" value="$(arg waypoints_file)"/>
+    <param name="start_delay" value="$(arg start_delay)"/>
+    <param name="default_retries" value="2"/>
+    <param name="blocked_timeout" value="12.0"/>
+    <param name="plan_check_period" value="5.0"/>
+    <param name="prerotate_enabled" value="true"/>
+    <param name="prerotate_angle_deg" value="30.0"/>
+  </node>
+
+  <node if="$(arg legacy_waiter)" pkg="tracer_nav" type="blocked_waiter.py"
+        name="blocked_waiter" output="screen"/>
+  <node if="$(arg legacy_janitor)" pkg="tracer_nav" type="costmap_janitor.py"
+        name="costmap_janitor" output="screen">
+    <param name="period" value="20.0"/>
+    <param name="idle_grace" value="3.0"/>
+  </node>
+
+  <!-- Keyboard teleop & emergency stop takeover node -->
+  <node if="$(arg teleop_keyboard)" pkg="tracer_nav" type="keyboard_teleop.py"
+        name="keyboard_teleop" output="screen" launch-prefix="python3 -u">
+    <param name="speed" value="0.3"/>
+    <param name="turn" value="0.6"/>
+    <param name="repeat_rate" value="10.0"/>
+  </node>
+</launch>

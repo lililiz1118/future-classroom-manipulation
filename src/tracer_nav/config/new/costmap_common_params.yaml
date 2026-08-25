@@ -1,0 +1,11 @@
+
+obstacle_range: 20.0
+raytrace_range: 20.0
+robot_radius: 0.47
+inflation_radius: 0.55
+observation_sources: base_lidar
+base_lidar: 
+    data_type: LaserScan,
+    topic: /scan,
+    marking: true ,
+    clearing: true,

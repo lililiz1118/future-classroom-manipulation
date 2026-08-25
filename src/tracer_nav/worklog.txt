@@ -1,0 +1,54 @@
+关于全局规划器路径：
+    使用global_planner包，见官网：https://wiki.ros.org/global_planner#Parameters
+    使用默认参数时，轨迹凸起较多，与官网图片出入较大，原因未知；
+    use_grid_path=True 时，路径将会走4联通道路，规划器行为正常，要改进可能只能从局部规划器入手；
+    此外，关于A*算法规划，“用 4 连通网格方格计算的，而通过追踪从目标到起点的电势梯度路径则使用了 8 连通的同一网格。因此，实际找到的路径在 8 连通意义上可能并非完全最优。”；
+
+    根据官网更改了全局规划器配置 https://github.com/NVIDIA-AI-IOT/turtlebot3/blob/master/turtlebot_apps/turtlebot_navigation/param/global_planner_params.yaml
+    建议尝试quadratic、dijkstra
+
+关于move_base订阅的odometry话题：
+    由于导航需要，导航栈需要robot_base_frame的 odometry 消息；
+    理想情况下，相关节点发布的 odometry 消息的父坐标系应该与move_base的global_frame相同；子坐标系应该与move_base的robot_map_frame相同
+    但是如果不同，如 odometry 的子坐标系是lidar_scan，robot_map_frame是base_link，但是在tf树上lidar_scan与base_link是联通的
+    在这种情况下：
+        对于位姿，导航栈（costmap_2d）确实会查询 TF 树，即局部代价地图（Local Costmap）会调用 TF 的 lookupTransform，查询 lidar_scan -> base_link 的变换
+            官方文档：Required tf Transforms ：(value of global_frame parameter) → (value of robot_base_frame parameter)  
+        对于速度，导航栈（global_planner 与 dwa_local_planner）规划器订阅 /odom 话题，直接提取 msg.twist.twist.linear.x 作为机器人的当前前进速度。
+            dwa 官方文档：The velocity information in this message is assumed to be in the same coordinate frame as the robot_base_frame of the costmap contained within the TrajectoryPlannerROS object.
+
+当前系统架构梳理
+    Fast-LIO (作为里程计源):
+        输入: 雷达点云 + IMU。
+        输出:
+            Topic /Odometry: 包含位姿（odom -> body）和速度（body frame）。
+            Topic /cloud_registered_body: 转换到 odom 坐标系的点云。
+        角色: 提供高频、连续但会有累积漂移的里程计推算。
+
+    global_localization.py (作为定位修正源):
+        输入: /Odometry (当前推算位置) + /pcd_map (全局地图) + /cloud_registered (实时点云)。
+        处理: 使用 ICP 算法将当前点云与全局地图进行匹配（配准）。
+        输出: /map_to_odom (这是一个修正矩阵，表示 map 坐标系和 odom 坐标系之间的偏差)。
+        角色: 低频、高精度地计算机器人在地图中的绝对位置，用来消除累积误差。
+
+    gl_1.py (作为融合与TF发布者):
+        输入: 接收 Fast-LIO 的 /Odometry 和全局定位的 /map_to_odom。
+        处理: 维护 T_map_to_odom。
+        输出 1 (TF): 发布 map -> odom 的 TF 变换。这是最关键的一步，它把孤立的里程计坐标系挂载到了全局地图坐标系下。
+        输出 2 (Topic): 发布 /localization odometry话题。
+
+关于使odometry的child_frame_id与move_base的robot_frame_id一致：
+    我们修改了gl_1.py文件
+    将其发布的 /localization 话题修改了一下，通过杆臂补偿将odometry消息转化为了从map到base_link
+
+teb tuning
+    将global costmap 膨胀半径改为0.45，使得可以规划出狭窄路段居中的路线
+    将costmap改为6.0*6.0，以解决动态障碍物问题
+    将分辨率下调，解决costmap更新超时导致的车体抖动
+    gloabl planner频繁报错failed to get plan from legal potential，换为old_nav
+    并通过减少对全局路径的依赖避免抖动（这个好像不太对，抖动疑似更多的来自报错）
+    将车体轮廓改为polygon
+
+    未解决的问题：trajectory is not feasible频繁报错
+    ai认为问题主要在于 min_obstacle_dist 与 Footprint 冲突，即机器人经过狭窄区域时距离障碍物小于min_obstacle_dist
+    但是将min_obstacle_dist改为很小，此问题仍然存在，应该是其他问题导致的。

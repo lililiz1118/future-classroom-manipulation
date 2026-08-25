@@ -1,0 +1,20 @@
+<launch>
+  <arg name="gripper_id" default="1"/>
+  <arg name="gripper_model" default="AG95_MB"/>
+  <arg name="gripper_device" default="/dev/dh_gripper_usb"/>
+  <arg name="baudrate" default="115200"/>
+
+  <!-- The driver initializes the physical gripper when it starts.  Do not
+       respawn it: a crash must return control to the operator instead of
+       repeating physical initialization without another START confirmation. -->
+  <node pkg="dh_gripper_driver" type="dh_gripper_driver"
+        name="dh_gripper_driver" output="screen" required="true" respawn="false">
+    <param name="gripper_id" type="string" value="$(arg gripper_id)"/>
+    <param name="gripper_model" type="string" value="$(arg gripper_model)"/>
+    <param name="connect_port" type="string" value="$(arg gripper_device)"/>
+    <param name="baudrate" type="string" value="$(arg baudrate)"/>
+  </node>
+
+  <node pkg="topic_tools" type="relay" name="gripper_joint_state_relay"
+        args="/gripper/joint_states /joint_states" required="true"/>
+</launch>
