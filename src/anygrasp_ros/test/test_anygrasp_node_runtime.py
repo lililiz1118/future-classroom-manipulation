@@ -1,5 +1,6 @@
 import importlib.util
 import math
+import struct
 import subprocess
 import sys
 import unittest
@@ -19,7 +20,7 @@ if SYSTEM_PYTHON not in sys.path:
 
 import rospy  # noqa: E402
 from sensor_msgs import point_cloud2  # noqa: E402
-from sensor_msgs.msg import PointField  # noqa: E402
+from sensor_msgs.msg import PointCloud2, PointField  # noqa: E402
 from std_msgs.msg import Header  # noqa: E402
 from visualization_msgs.msg import Marker  # noqa: E402
 
@@ -114,7 +115,7 @@ class LatestMessageBufferTest(unittest.TestCase):
 
 
 class PointCloudConversionTest(unittest.TestCase):
-    def test_cloud_conversion_preserves_xyz_and_decodes_packed_rgb(self):
+    def test_float32_rgb_is_read_directly_as_packed_uint32(self):
         header = Header(frame_id="d405_depth_optical_frame")
         fields = [
             PointField("x", 0, PointField.FLOAT32, 1),
@@ -129,10 +130,86 @@ class PointCloudConversionTest(unittest.TestCase):
             [(0.1, 0.2, 0.3, float(packed[0])), (-0.1, 0.0, 0.8, float(packed[1]))],
         )
 
-        points, colors = NODE.AnyGraspD405Node._cloud_to_arrays(cloud)
+        with patch.object(
+            NODE.point_cloud2,
+            "read_points",
+            side_effect=AssertionError("read_points must not be used"),
+        ):
+            points, packed_rgb = NODE.AnyGraspD405Node._cloud_to_arrays(cloud)
 
         np.testing.assert_allclose(points, [[0.1, 0.2, 0.3], [-0.1, 0.0, 0.8]])
-        np.testing.assert_allclose(colors, [[1.0, 0.0, 0.0], [0.0, 0.0, 1.0]])
+        np.testing.assert_array_equal(packed_rgb, [0x00FF0000, 0x000000FF])
+        self.assertEqual(points.dtype, np.float32)
+        self.assertEqual(packed_rgb.dtype, np.uint32)
+
+    def test_uint32_rgb_and_organized_row_padding_are_read_directly(self):
+        fields = [
+            PointField("x", 0, PointField.FLOAT32, 1),
+            PointField("y", 4, PointField.FLOAT32, 1),
+            PointField("z", 8, PointField.FLOAT32, 1),
+            PointField("rgb", 12, PointField.UINT32, 1),
+        ]
+        point_step = 16
+        row_step = 36
+        data = bytearray(row_step * 2)
+        samples = [
+            (0, 0, (0.1, 0.2, 0.3, 0x00102030)),
+            (0, 1, (0.4, 0.5, 0.6, 0x00405060)),
+            (1, 0, (0.7, 0.8, 0.9, 0x00708090)),
+            (1, 1, (1.0, 1.1, 1.2, 0x00A0B0C0)),
+        ]
+        for row, column, values in samples:
+            struct.pack_into("<fffI", data, row * row_step + column * point_step, *values)
+        cloud = PointCloud2(
+            height=2,
+            width=2,
+            fields=fields,
+            is_bigendian=False,
+            point_step=point_step,
+            row_step=row_step,
+            data=bytes(data),
+            is_dense=True,
+        )
+
+        points, packed_rgb = NODE.AnyGraspD405Node._cloud_to_arrays(cloud)
+
+        np.testing.assert_allclose(
+            points,
+            [[0.1, 0.2, 0.3], [0.4, 0.5, 0.6], [0.7, 0.8, 0.9], [1.0, 1.1, 1.2]],
+        )
+        np.testing.assert_array_equal(
+            packed_rgb, [0x00102030, 0x00405060, 0x00708090, 0x00A0B0C0]
+        )
+
+
+class NodeDefaultsTest(unittest.TestCase):
+    def test_publish_input_cloud_defaults_to_false_without_parameter(self):
+        workspace = {
+            "x_min": -0.5,
+            "x_max": 0.5,
+            "y_min": -0.5,
+            "y_max": 0.5,
+            "z_min": 0.1,
+            "z_max": 1.5,
+        }
+
+        def get_param(name, *default):
+            if name == "~python_executable":
+                return sys.executable
+            if name == "~workspace":
+                return workspace
+            if default:
+                return default[0]
+            raise KeyError(name)
+
+        with patch.object(NODE.rospy, "init_node"), patch.object(
+            NODE.rospy, "get_param", side_effect=get_param
+        ), patch.object(NODE, "AnyGraspAdapter"), patch.object(
+            NODE.rospy, "Publisher", return_value=CapturePublisher()
+        ), patch.object(NODE.rospy, "Subscriber"):
+            node = NODE.AnyGraspD405Node()
+
+        self.assertFalse(node._publish_input)
 
 
 class ProcessCloudTest(unittest.TestCase):
@@ -141,8 +218,8 @@ class ProcessCloudTest(unittest.TestCase):
         header = Header(stamp=rospy.Time(123, 456), frame_id="d405_depth_optical_frame")
         message = SimpleNamespace(header=header)
         points = np.array([[0.0, 0.0, 0.5], [0.1, 0.0, 0.6]], dtype=np.float32)
-        colors = np.array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]], dtype=np.float32)
-        node._cloud_to_arrays = lambda unused: (points, colors)
+        packed_rgb = np.array([0x00FF0000, 0x0000FF00], dtype=np.uint32)
+        node._cloud_to_arrays = lambda unused: (points, packed_rgb)
 
         with patch.object(NODE.rospy, "logwarn_throttle"):
             node._process_cloud(message)
@@ -175,7 +252,7 @@ class ProcessCloudTest(unittest.TestCase):
         message = SimpleNamespace(header=header)
         node._cloud_to_arrays = lambda unused: (
             np.empty((0, 3), dtype=np.float32),
-            np.empty((0, 3), dtype=np.float32),
+            np.empty(0, dtype=np.uint32),
         )
 
         with patch.object(NODE.rospy, "logwarn_throttle"):
@@ -190,6 +267,62 @@ class ProcessCloudTest(unittest.TestCase):
         self.assertEqual(len(node._marker_publisher.messages), 1)
         self.assertEqual(node._marker_publisher.messages[0].markers[0].action, Marker.DELETEALL)
         self.assertEqual(node._best_publisher.messages, [])
+
+    def test_process_cloud_logs_all_timing_stages_in_milliseconds(self):
+        node = make_node()
+        message = SimpleNamespace(header=Header(frame_id="camera_frame"))
+        node._cloud_to_arrays = lambda unused: (
+            np.array([[0.0, 0.0, 0.5]], dtype=np.float32),
+            np.array([0x00FF0000], dtype=np.uint32),
+        )
+
+        with patch.object(NODE.rospy, "logwarn_throttle"), patch.object(
+            NODE.rospy, "loginfo"
+        ) as loginfo:
+            node._process_cloud(message)
+
+        timing_formats = [
+            call.args[0]
+            for call in loginfo.call_args_list
+            if call.args and "timing ms" in call.args[0]
+        ]
+        self.assertEqual(len(timing_formats), 1)
+        timing_format = timing_formats[0]
+        for label in (
+            "PointCloud2 parse",
+            "finite+workspace filter",
+            "RViz input publish",
+            "AnyGrasp inference",
+            "NMS+sort",
+            "TOTAL",
+        ):
+            self.assertIn(label, timing_format)
+
+    def test_failed_inference_records_elapsed_time_before_reraising(self):
+        node = make_node()
+        message = SimpleNamespace(header=Header(frame_id="camera_frame"))
+        node._cloud_to_arrays = lambda unused: (
+            np.array([[0.0, 0.0, 0.5]], dtype=np.float32),
+            np.array([0x00FF0000], dtype=np.uint32),
+        )
+        node._adapter.infer = Mock(side_effect=RuntimeError("inference failed"))
+        clock_values = iter(
+            [0.0, 1.0, 1.001, 2.0, 2.001, 3.0, 3.001, 4.0, 4.010, 5.0]
+        )
+
+        with patch.object(NODE.time, "perf_counter", side_effect=clock_values), patch.object(
+            NODE.rospy, "loginfo"
+        ) as loginfo:
+            with self.assertRaisesRegex(RuntimeError, "inference failed"):
+                node._process_cloud(message)
+
+        timing_calls = [
+            call
+            for call in loginfo.call_args_list
+            if call.args and "timing ms" in call.args[0]
+        ]
+        self.assertEqual(len(timing_calls), 1)
+        self.assertAlmostEqual(timing_calls[0].args[4], 10.0)
 
 
 class BackendFailureClassificationTest(unittest.TestCase):

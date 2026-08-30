@@ -29,7 +29,6 @@ if SYSTEM_DIST_PACKAGES in sys.path:
     sys.path.remove(SYSTEM_DIST_PACKAGES)
 
 from anygrasp_ros.core import (
-    decode_packed_rgb,
     filter_workspace,
     grasp_axes,
     rotation_matrix_to_quaternion,
@@ -137,7 +136,7 @@ class AnyGraspD405Node:
         self._top_n = int(rospy.get_param("~top_n", 10))
         self._inference_rate = float(rospy.get_param("~inference_rate", 1.0))
         self._min_workspace_points = int(rospy.get_param("~min_workspace_points", 1000))
-        self._publish_input = bool(rospy.get_param("~publish_input_cloud", True))
+        self._publish_input = bool(rospy.get_param("~publish_input_cloud", False))
         if self._top_n <= 0 or self._inference_rate <= 0.0 or self._min_workspace_points <= 0:
             raise ValueError("top_n, inference_rate, and min_workspace_points must be positive")
 
@@ -207,30 +206,63 @@ class AnyGraspD405Node:
         rgb_datatype = fields["rgb"].datatype
         if rgb_datatype not in (PointField.FLOAT32, PointField.UINT32):
             raise ValueError("PointCloud2 rgb must be packed FLOAT32 or UINT32")
+        for name in ("x", "y", "z"):
+            if fields[name].datatype != PointField.FLOAT32 or fields[name].count != 1:
+                raise ValueError("PointCloud2 %s must be scalar FLOAT32" % name)
+        if fields["rgb"].count != 1:
+            raise ValueError("PointCloud2 rgb must be scalar packed data")
 
-        rows = list(
-            point_cloud2.read_points(
-                message,
-                field_names=("x", "y", "z", "rgb"),
-                skip_nans=False,
-            )
-        )
-        if not rows:
+        width = int(message.width)
+        height = int(message.height)
+        point_step = int(message.point_step)
+        row_step = int(message.row_step)
+        if width == 0 or height == 0:
             return (
                 np.empty((0, 3), dtype=np.float32),
-                np.empty((0, 3), dtype=np.float32),
+                np.empty(0, dtype=np.uint32),
             )
-        points = np.fromiter(
-            (coordinate for row in rows for coordinate in row[:3]),
-            dtype=np.float32,
-            count=len(rows) * 3,
-        ).reshape(-1, 3)
-        rgb_dtype = np.float32 if rgb_datatype == PointField.FLOAT32 else np.uint32
-        packed_rgb = np.fromiter(
-            (row[3] for row in rows), dtype=rgb_dtype, count=len(rows)
+        if point_step <= 0 or row_step < width * point_step:
+            raise ValueError("PointCloud2 has invalid point_step or row_step")
+        required_bytes = (height - 1) * row_step + width * point_step
+        if len(message.data) < required_bytes:
+            raise ValueError("PointCloud2 data is shorter than its dimensions require")
+        for name in ("x", "y", "z", "rgb"):
+            if fields[name].offset < 0 or fields[name].offset + 4 > point_step:
+                raise ValueError("PointCloud2 %s field exceeds point_step" % name)
+
+        byte_order = ">" if message.is_bigendian else "<"
+        rgb_format = "f4" if rgb_datatype == PointField.FLOAT32 else "u4"
+        record_dtype = np.dtype(
+            {
+                "names": ("x", "y", "z", "rgb"),
+                "formats": (
+                    byte_order + "f4",
+                    byte_order + "f4",
+                    byte_order + "f4",
+                    byte_order + rgb_format,
+                ),
+                "offsets": tuple(fields[name].offset for name in ("x", "y", "z", "rgb")),
+                "itemsize": point_step,
+            }
         )
-        colors = decode_packed_rgb(packed_rgb, rgb_datatype)
-        return points, colors
+        records = np.ndarray(
+            shape=(height, width),
+            dtype=record_dtype,
+            buffer=message.data,
+            strides=(row_step, point_step),
+        )
+        points = np.column_stack(
+            (
+                records["x"].reshape(-1),
+                records["y"].reshape(-1),
+                records["z"].reshape(-1),
+            )
+        ).astype(np.float32, copy=False)
+        rgb_values = records["rgb"].reshape(-1)
+        if rgb_datatype == PointField.FLOAT32:
+            rgb_values = rgb_values.view(np.dtype(byte_order + "u4"))
+        packed_rgb = rgb_values.astype(np.uint32, copy=False)
+        return points, packed_rgb
 
     @staticmethod
     def _pack_colors(colors):
@@ -358,62 +390,101 @@ class AnyGraspD405Node:
         self._best_publisher.publish(pose)
 
     def _process_cloud(self, message):
-        header = self._header_from_cloud(message)
-        points, colors = self._cloud_to_arrays(message)
-        filtered = filter_workspace(points, colors, self._workspace_bounds)
-        rospy.loginfo(
-            "[AnyGrasp] cloud frame: %s | raw points: %d | valid points: %d | workspace points: %d",
-            header.frame_id,
-            filtered.raw_count,
-            filtered.valid_count,
-            filtered.workspace_count,
-        )
-        self._publish_input_cloud(filtered, header)
-        if filtered.workspace_count == 0:
-            rospy.logwarn_throttle(5.0, "[AnyGrasp] workspace is empty; skipping inference")
-            self._publish_clear_markers(header)
-            return
-        if filtered.workspace_count < self._min_workspace_points:
-            rospy.logwarn_throttle(
-                5.0,
-                "[AnyGrasp] workspace has only %d points (minimum %d); skipping inference",
-                filtered.workspace_count,
-                self._min_workspace_points,
-            )
-            self._publish_clear_markers(header)
-            return
+        total_started = time.perf_counter()
+        timing_ms = {
+            "parse": 0.0,
+            "filter": 0.0,
+            "input_publish": 0.0,
+            "inference": 0.0,
+            "nms_sort": 0.0,
+        }
 
-        started = time.perf_counter()
-        grasps = self._adapter.infer(
-            filtered.points, filtered.colors, self._workspace_bounds
-        )
-        before_nms = len(grasps)
-        if before_nms == 0:
-            elapsed = time.perf_counter() - started
-            rospy.logwarn_throttle(5.0, "[AnyGrasp] no grasp detected")
+        def measure(stage, operation):
+            stage_started = time.perf_counter()
+            try:
+                return operation()
+            finally:
+                timing_ms[stage] = (time.perf_counter() - stage_started) * 1000.0
+
+        try:
+            header = self._header_from_cloud(message)
+            points, packed_rgb = measure(
+                "parse", lambda: self._cloud_to_arrays(message)
+            )
+            filtered = measure(
+                "filter",
+                lambda: filter_workspace(
+                    points, packed_rgb, self._workspace_bounds
+                ),
+            )
             rospy.loginfo(
-                "[AnyGrasp] inference time: %.3f s | grasps before nms: 0 | grasps after nms: 0 | published grasps: 0",
-                elapsed,
+                "[AnyGrasp] cloud frame: %s | raw points: %d | valid points: %d | workspace points: %d",
+                header.frame_id,
+                filtered.raw_count,
+                filtered.valid_count,
+                filtered.workspace_count,
             )
-            self._publish_clear_markers(header)
-            return
+            if self._publish_input:
+                measure(
+                    "input_publish",
+                    lambda: self._publish_input_cloud(filtered, header),
+                )
+            if filtered.workspace_count == 0:
+                rospy.logwarn_throttle(
+                    5.0, "[AnyGrasp] workspace is empty; skipping inference"
+                )
+                self._publish_clear_markers(header)
+                return
+            if filtered.workspace_count < self._min_workspace_points:
+                rospy.logwarn_throttle(
+                    5.0,
+                    "[AnyGrasp] workspace has only %d points (minimum %d); skipping inference",
+                    filtered.workspace_count,
+                    self._min_workspace_points,
+                )
+                self._publish_clear_markers(header)
+                return
 
-        grasps = grasps.nms().sort_by_score()
-        after_nms = len(grasps)
-        selected = grasps[: min(self._top_n, after_nms)]
-        elapsed = time.perf_counter() - started
-        if len(selected) == 0:
-            self._publish_clear_markers(header)
-            return
-        self._publish_grasps(selected, header)
-        rospy.loginfo(
-            "[AnyGrasp] inference time: %.3f s | grasps before nms: %d | grasps after nms: %d | published grasps: %d | best score: %.6f",
-            elapsed,
-            before_nms,
-            after_nms,
-            len(selected),
-            float(selected[0].score),
-        )
+            grasps = measure(
+                "inference",
+                lambda: self._adapter.infer(
+                    filtered.points, filtered.colors, self._workspace_bounds
+                ),
+            )
+            before_nms = len(grasps)
+            if before_nms == 0:
+                rospy.logwarn_throttle(5.0, "[AnyGrasp] no grasp detected")
+                rospy.loginfo(
+                    "[AnyGrasp] grasps before nms: 0 | grasps after nms: 0 | published grasps: 0"
+                )
+                self._publish_clear_markers(header)
+                return
+
+            grasps = measure("nms_sort", lambda: grasps.nms().sort_by_score())
+            after_nms = len(grasps)
+            selected = grasps[: min(self._top_n, after_nms)]
+            if len(selected) == 0:
+                self._publish_clear_markers(header)
+                return
+            self._publish_grasps(selected, header)
+            rospy.loginfo(
+                "[AnyGrasp] grasps before nms: %d | grasps after nms: %d | published grasps: %d | best score: %.6f",
+                before_nms,
+                after_nms,
+                len(selected),
+                float(selected[0].score),
+            )
+        finally:
+            total_ms = (time.perf_counter() - total_started) * 1000.0
+            rospy.loginfo(
+                "[AnyGrasp] timing ms | PointCloud2 parse: %.3f | finite+workspace filter: %.3f | RViz input publish: %.3f | AnyGrasp inference: %.3f | NMS+sort: %.3f | TOTAL: %.3f",
+                timing_ms["parse"],
+                timing_ms["filter"],
+                timing_ms["input_publish"],
+                timing_ms["inference"],
+                timing_ms["nms_sort"],
+                total_ms,
+            )
 
     def run(self):
         rate = rospy.Rate(self._inference_rate)

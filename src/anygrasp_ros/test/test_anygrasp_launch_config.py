@@ -22,7 +22,8 @@ class AnyGraspConfigurationTest(unittest.TestCase):
             "/home/jt001/anygrasp_sdk/grasp_detection/log/checkpoint_detection.tar",
         )
         self.assertEqual(config["top_n"], 10)
-        self.assertEqual(config["inference_rate"], 1.0)
+        self.assertEqual(config["inference_rate"], 0.2)
+        self.assertFalse(config["publish_input_cloud"])
         self.assertTrue(config["collision_detection"])
         self.assertTrue(config["top_down_grasp"])
         self.assertFalse(config["dense_grasp"])

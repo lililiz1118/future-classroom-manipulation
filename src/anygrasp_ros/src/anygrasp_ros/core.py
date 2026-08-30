@@ -37,18 +37,18 @@ def decode_packed_rgb(values: np.ndarray, datatype: int) -> np.ndarray:
 
 def filter_workspace(
     points: np.ndarray,
-    colors: np.ndarray,
+    packed_rgb: np.ndarray,
     bounds: Sequence[float],
 ) -> FilteredCloud:
-    """Remove invalid samples and crop using inclusive XYZ bounds."""
+    """Crop finite XYZ samples, then decode RGB only for retained points."""
     point_array = np.asarray(points, dtype=np.float32)
-    color_array = np.asarray(colors, dtype=np.float32)
+    packed_array = np.asarray(packed_rgb)
     if point_array.ndim != 2 or point_array.shape[1] != 3:
         raise ValueError("points must have shape (N, 3)")
-    if color_array.ndim != 2 or color_array.shape[1] != 3:
-        raise ValueError("colors must have shape (N, 3)")
-    if point_array.shape[0] != color_array.shape[0]:
-        raise ValueError("points and colors must contain the same number of samples")
+    if packed_array.ndim != 1:
+        raise ValueError("packed_rgb must have shape (N,)")
+    if point_array.shape[0] != packed_array.shape[0]:
+        raise ValueError("points and packed_rgb must contain the same number of samples")
     if len(bounds) != 6:
         raise ValueError("workspace bounds must be x_min,x_max,y_min,y_max,z_min,z_max")
 
@@ -56,24 +56,23 @@ def filter_workspace(
     if x_min > x_max or y_min > y_max or z_min > z_max:
         raise ValueError("workspace minimums must not exceed maximums")
 
-    finite_mask = np.isfinite(point_array).all(axis=1) & np.isfinite(color_array).all(axis=1)
-    valid_points = point_array[finite_mask]
-    valid_colors = color_array[finite_mask]
-    workspace_mask = (
-        (valid_points[:, 0] >= x_min)
-        & (valid_points[:, 0] <= x_max)
-        & (valid_points[:, 1] >= y_min)
-        & (valid_points[:, 1] <= y_max)
-        & (valid_points[:, 2] >= z_min)
-        & (valid_points[:, 2] <= z_max)
-    )
-    workspace_points = valid_points[workspace_mask].astype(np.float32, copy=False)
-    workspace_colors = valid_colors[workspace_mask].astype(np.float32, copy=False)
+    combined_mask = np.isfinite(point_array).all(axis=1)
+    valid_count = int(np.count_nonzero(combined_mask))
+    combined_mask &= point_array[:, 0] >= x_min
+    combined_mask &= point_array[:, 0] <= x_max
+    combined_mask &= point_array[:, 1] >= y_min
+    combined_mask &= point_array[:, 1] <= y_max
+    combined_mask &= point_array[:, 2] >= z_min
+    combined_mask &= point_array[:, 2] <= z_max
+
+    workspace_points = point_array[combined_mask].astype(np.float32, copy=False)
+    workspace_packed_rgb = packed_array[combined_mask].astype(np.uint32, copy=False)
+    workspace_colors = decode_packed_rgb(workspace_packed_rgb, POINT_FIELD_UINT32)
     return FilteredCloud(
         points=workspace_points,
         colors=workspace_colors,
         raw_count=int(point_array.shape[0]),
-        valid_count=int(valid_points.shape[0]),
+        valid_count=valid_count,
         workspace_count=int(workspace_points.shape[0]),
     )
 

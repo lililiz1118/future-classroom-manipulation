@@ -4,14 +4,14 @@ cloud_topic: /d405/depth/color/points
 best_grasp_topic: /anygrasp/best_grasp
 marker_topic: /anygrasp/grasp_markers
 input_cloud_topic: /anygrasp/input_cloud
-publish_input_cloud: true
+publish_input_cloud: false
 
 python_executable: /home/jt001/.conda/envs/anygrasp/bin/python
 sdk_dir: /home/jt001/anygrasp_sdk/grasp_detection
 checkpoint_path: /home/jt001/anygrasp_sdk/grasp_detection/log/checkpoint_detection.tar
 
 top_n: 10
-inference_rate: 1.0
+inference_rate: 0.2
 min_workspace_points: 1000
 
 workspace:
