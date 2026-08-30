@@ -149,27 +149,10 @@ int main(int argc, char** argv)
     if(initstate != DH_Gripper::S_INIT_FINISHED)
     {
         ROS_INFO("Initializing gripper...");
-        _gripper->Initialization();
-        
-        // 带超时的初始化等待
-        const int MAX_ATTEMPTS = 50; // 5秒 (50*0.1s)
-        int attempts = 0;
-        // while(initstate != DH_Gripper::S_INIT_FINISHED && attempts++ < MAX_ATTEMPTS)
-        // {
-        //     usleep(100000); // 100ms
-        //     _gripper->GetInitState(initstate);
-        //     ROS_INFO_DELAYED_THROTTLE(1, "Waiting for initialization... (%d/%d)", 
-        //                             attempts, MAX_ATTEMPTS);
-        // }
-        
-        // if(initstate != DH_Gripper::S_INIT_FINISHED)
-        // {
-        //     ROS_ERROR("Gripper initialization timed out");
-        //     _gripper->close();
-        //     delete _gripper_Factory;
-        //     return -1;
-        // }
-        ROS_INFO("Gripper initialized successfully");
+        if(_gripper->Initialization())
+            ROS_INFO("Initialization command acknowledged; waiting for hardware state");
+        else
+            ROS_WARN("Initialization command was not acknowledged; readiness gate will stop startup");
     }
 
     // 使用全局节点句柄创建发布者和订阅者

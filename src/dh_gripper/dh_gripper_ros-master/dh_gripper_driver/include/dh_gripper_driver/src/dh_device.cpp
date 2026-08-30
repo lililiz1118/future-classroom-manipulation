@@ -170,30 +170,39 @@ int device_wrire(int fd, char *data, int len)
 
 int device_read(int fd, char *data, int data_len)
 {
-    int len,fs_sel;  
-    fd_set fs_read;  
-     
-    struct timeval time;  
-     
-    FD_ZERO(&fs_read);  
-    FD_SET(fd,&fs_read);  
-     
-    time.tv_sec = 0;  
-    time.tv_usec = 200000;  
-     
-    // printf("waiting read \n"); 
-    fs_sel = select(fd+1,&fs_read,NULL,NULL,&time);  
-    if(fs_sel)  
-	{  
-          
-		len = read(fd,data,data_len);  
-		// printf("len = %d fs_sel = %d\n",len,fs_sel);  
-		return len;  
-	}  
-    else  
-	{  
-		return -1;  
-	}   
-}
+    int total_len = 0;
 
+    while(total_len < data_len)
+    {
+        fd_set fs_read;
+        FD_ZERO(&fs_read);
+        FD_SET(fd, &fs_read);
+
+        struct timeval timeout;
+        timeout.tv_sec = 0;
+        timeout.tv_usec = 200000;
+
+        int selected = select(fd + 1, &fs_read, NULL, NULL, &timeout);
+        if(selected == 0)
+            return total_len > 0 ? total_len : -1;
+        if(selected < 0)
+        {
+            if(errno == EINTR)
+                continue;
+            return total_len > 0 ? total_len : -1;
+        }
+
+        int len = read(fd, data + total_len, data_len - total_len);
+        if(len > 0)
+        {
+            total_len += len;
+            continue;
+        }
+        if(len < 0 && errno == EINTR)
+            continue;
+        return total_len > 0 ? total_len : -1;
+    }
+
+    return total_len;
+}
 

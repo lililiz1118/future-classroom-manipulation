@@ -221,6 +221,15 @@ add_dependencies(dh_gripper_driver_test ${catkin_EXPORTED_TARGETS})
 ## Testing ##
 #############
 
+if(CATKIN_ENABLE_TESTING)
+  catkin_add_gtest(dh_device_read_test
+    test/dh_device_read_test.cpp
+    include/dh_gripper_driver/src/dh_device.cpp)
+  if(TARGET dh_device_read_test)
+    target_link_libraries(dh_device_read_test ${catkin_LIBRARIES} util)
+  endif()
+endif()
+
 ## Add gtest based cpp test target and link libraries
 # catkin_add_gtest(${PROJECT_NAME}-test test/test_dh_gripper_driver.cpp)
 # if(TARGET ${PROJECT_NAME}-test)

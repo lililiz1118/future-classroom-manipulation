@@ -130,7 +130,7 @@ bool DH_Modbus_Gripper::WriteRegisterFunc(int index, int value)
             continue; 
 
         char rev_buf[32];
-        int rdlen = device_read(_Serialhandle, rev_buf, sizeof(rev_buf) - 1);
+        int rdlen = device_read(_Serialhandle, rev_buf, sizeof(send_buf));
         // std::cout << "sed " ;
         // for(int i=0; i< wdlen;i++)
         //     std::cout <<(unsigned int)(unsigned char) send_buf[i]<<" "; 
@@ -196,7 +196,7 @@ bool DH_Modbus_Gripper::ReadRegisterFunc(int index,int &value)
         // std::cout << std::endl;
 
         char rev_buf[32];
-        int rdlen = device_read(_Serialhandle, rev_buf, sizeof(rev_buf) - 1);
+        int rdlen = device_read(_Serialhandle, rev_buf, 7);
         
         // std::cout <<retrycount<<" rev " ;
         // for(int i=0; i< rdlen;i++)
@@ -288,5 +288,4 @@ unsigned short wCRCWord = 0xFFFF;
    return wCRCWord;
 
 } // End: CRC16
-
 
