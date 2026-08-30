@@ -3,6 +3,12 @@
   <!-- The guarded startup process launches this file only after the physical
        Driver, program-running flag, joint states, controller and speed scaling
        have all passed readiness checks. -->
+  <!-- The scaled UR controller intentionally stretches trajectory time when the
+       robot speed slider is below 100%. Let the controller report completion
+       instead of having MoveIt cancel a valid low-speed trajectory early. -->
+  <param name="/move_group/trajectory_execution/execution_duration_monitoring"
+         value="false" />
+
   <include file="$(find moveit_config)/launch/move_group.launch">
     <arg name="allow_trajectory_execution" value="true" />
     <arg name="moveit_controller_manager" value="simple" />

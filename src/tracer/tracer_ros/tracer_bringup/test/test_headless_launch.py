@@ -35,6 +35,12 @@ class HeadlessLaunchTest(unittest.TestCase):
     def test_move_group_enables_scaled_controller_trajectory_execution(self):
         params = self.dump("ur3_moveit_execution.launch")
         self.assertTrue(params["/move_group/allow_trajectory_execution"])
+        self.assertEqual(
+            params.get(
+                "/move_group/trajectory_execution/execution_duration_monitoring"
+            ),
+            False,
+        )
         controllers = params["/move_group/controller_list"]
         self.assertEqual(
             controllers[0]["name"], "ur/ur_arm_scaled_pos_joint_traj_controller"
