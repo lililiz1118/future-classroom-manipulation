@@ -2,6 +2,7 @@
 # Single-command guarded startup for UR3 CB3 + MoveIt + RViz.
 
 TRACER_WORKSPACE="${TRACER_WS:-/home/jt001/tracer_ws}"
+CONTROL_LOCK="${TRACER_UR3_CONTROL_LOCK:-/tmp/tracer-ur3-control.lock}"
 CALLER_MASTER_URI="${ROS_MASTER_URI:-}"
 CALLER_ROS_IP="${ROS_IP:-}"
 CALLER_DISPLAY="${DISPLAY:-}"
@@ -32,4 +33,5 @@ elif [[ -f /run/user/1000/gdm/Xauthority ]]; then
   export XAUTHORITY=/run/user/1000/gdm/Xauthority
 fi
 
-exec rosrun tracer_bringup ur3_headless_moveit.py "$@"
+exec flock --exclusive --nonblock --conflict-exit-code 75 "${CONTROL_LOCK}" \
+  rosrun tracer_bringup ur3_headless_moveit.py "$@"
