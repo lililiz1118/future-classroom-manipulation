@@ -1,0 +1,12 @@
+<?xml version="1.0"?>
+<launch>
+  <!-- The guarded startup process launches this file only after the physical
+       Driver, program-running flag, joint states, controller and speed scaling
+       have all passed readiness checks. -->
+  <include file="$(find moveit_config)/launch/move_group.launch">
+    <arg name="allow_trajectory_execution" value="true" />
+    <arg name="moveit_controller_manager" value="simple" />
+    <arg name="load_robot_description" value="false" />
+    <arg name="info" value="true" />
+  </include>
+</launch>

@@ -58,6 +58,17 @@
   <exec_depend>roscpp</exec_depend>
   <exec_depend>rospy</exec_depend>
   <exec_depend>std_msgs</exec_depend>
+  <exec_depend>actionlib_msgs</exec_depend>
+  <exec_depend>controller_manager_msgs</exec_depend>
+  <exec_depend>moveit_config</exec_depend>
+  <exec_depend>robot_state_publisher</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>tcurdf</exec_depend>
+  <exec_depend>topic_tools</exec_depend>
+  <exec_depend>ur_msgs</exec_depend>
+  <exec_depend>ur_robot_driver</exec_depend>
+  <exec_depend>xacro</exec_depend>
+  <test_depend>roslaunch</test_depend>
 
 
   <!-- The export tag contains other, unspecified, tags -->

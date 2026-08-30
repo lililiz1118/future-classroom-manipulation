@@ -20,7 +20,7 @@ find_package(catkin REQUIRED COMPONENTS
 ## Uncomment this if the package has a setup.py. This macro ensures
 ## modules and global scripts declared therein get installed
 ## See http://ros.org/doc/api/catkin/html/user_guide/setup_dot_py.html
-# catkin_python_setup()
+catkin_python_setup()
 
 ################################################
 ## Declare ROS messages, services and actions ##
@@ -157,6 +157,11 @@ include_directories(
 install(DIRECTORY config launch scripts
   DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION})
 
+install(PROGRAMS
+  scripts/ur3_headless_moveit.py
+  DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
+)
+
 
 # all install targets should use catkin DESTINATION variables
 # See http://ros.org/doc/api/catkin/html/adv_user_guide/variables.html
@@ -202,4 +207,9 @@ install(DIRECTORY config launch scripts
 ## Add folders to be run by python nosetests
 if(CATKIN_ENABLE_TESTING)
   catkin_add_nosetests(test/test_calibrated_ur_launch.py)
+  catkin_add_nosetests(test/test_headless_dashboard.py)
+  catkin_add_nosetests(test/test_headless_startup.py)
+  catkin_add_nosetests(test/test_headless_runtime.py)
+  catkin_add_nosetests(test/test_headless_cli.py)
+  catkin_add_nosetests(test/test_headless_launch.py)
 endif()

@@ -1,0 +1,32 @@
+<?xml version="1.0"?>
+<launch>
+  <arg name="robot_ip" default="192.168.131.3" />
+  <arg name="reverse_ip" default="192.168.131.1" />
+  <arg name="headless_mode" default="true" />
+  <arg name="start_robot_state_publisher" default="true" />
+  <arg name="controller_config_file"
+       default="$(find tracer_bringup)/config/ur3_controllers.yaml" />
+  <arg name="robot_description_file"
+       default="$(find tcurdf)/urdf/tcurdf.urdf" />
+  <arg name="kinematics_config"
+       default="$(find tracer_bringup)/config/ur3_calibration.yaml" />
+
+  <!-- Parameters are loaded before nodes start. ros_control and MoveIt therefore
+       consume one calibrated model from their first initialization. -->
+  <param name="robot_description"
+         command="$(find xacro)/xacro '$(arg robot_description_file)' ur3_kinematics_config:=$(arg kinematics_config)" />
+
+  <node if="$(arg start_robot_state_publisher)"
+        name="robot_state_publisher"
+        pkg="robot_state_publisher"
+        type="robot_state_publisher"
+        output="screen" />
+
+  <include file="$(find tracer_bringup)/launch/tracer_ur_bringup.launch">
+    <arg name="robot_ip" value="$(arg robot_ip)" />
+    <arg name="reverse_ip" value="$(arg reverse_ip)" />
+    <arg name="headless_mode" value="$(arg headless_mode)" />
+    <arg name="controller_config_file" value="$(arg controller_config_file)" />
+    <arg name="kinematics_config" value="$(arg kinematics_config)" />
+  </include>
+</launch>
