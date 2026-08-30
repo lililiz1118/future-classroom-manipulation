@@ -6,6 +6,7 @@ import signal
 import socket
 import stat
 import subprocess
+import threading
 import time
 from typing import Any, Dict, Iterable, List, Sequence
 from urllib.parse import urlparse
@@ -328,6 +329,35 @@ class RosRuntime:
             % (", ".join(sorted(required)), topic)
         )
 
+    def _wait_for_named_joint_on_busy_topic(
+        self,
+        topic: str,
+        message_type: Any,
+        required_joints: Iterable[str],
+        timeout: float,
+    ) -> Any:
+        required = set(required_joints)
+        matched: List[Any] = []
+        ready = threading.Event()
+
+        def observe(message: Any) -> None:
+            if required.issubset(message.name) and not ready.is_set():
+                matched.append(message)
+                ready.set()
+
+        subscription = self._rospy.Subscriber(
+            topic, message_type, observe, queue_size=100
+        )
+        try:
+            if ready.wait(timeout):
+                return matched[0]
+        finally:
+            subscription.unregister()
+        raise StartupError(
+            "Timed out waiting for joints %s on %s"
+            % (", ".join(sorted(required)), topic)
+        )
+
     def _wait_for_initialized_gripper(
         self, topic: str, message_type: Any, timeout: float
     ) -> Any:
@@ -429,7 +459,7 @@ class RosRuntime:
         self._assert_fresh_advancing_joint_states(
             first, second, "/gripper/joint_states"
         )
-        self._wait_for_named_joint_state(
+        self._wait_for_named_joint_on_busy_topic(
             "/joint_states", JointState, {GRIPPER_JOINT}, 5.0
         )
 

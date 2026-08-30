@@ -350,6 +350,69 @@ class RosSnapshotTest(unittest.TestCase):
         )
         self.assertEqual(joint_state.name, [GRIPPER_JOINT])
 
+    def test_shared_joint_state_wait_keeps_one_subscription_until_gripper_arrives(self):
+        class FakeSubscription:
+            def __init__(self):
+                self.unregistered = False
+
+            def unregister(self):
+                self.unregistered = True
+
+        class FakeRospy:
+            def __init__(self):
+                self.subscription = FakeSubscription()
+
+            def Subscriber(self, topic, message_type, callback, queue_size):
+                callback(SimpleNamespace(name=list(REQUIRED_JOINTS)))
+                callback(SimpleNamespace(name=[GRIPPER_JOINT]))
+                return self.subscription
+
+        runtime = RosRuntime(environment={})
+        self.assertTrue(
+            hasattr(runtime, "_wait_for_named_joint_on_busy_topic"),
+            "shared /joint_states must use one persistent subscription",
+        )
+        runtime._rospy = FakeRospy()
+
+        message = runtime._wait_for_named_joint_on_busy_topic(
+            "/joint_states", object, {GRIPPER_JOINT}, 1.0
+        )
+
+        self.assertEqual(message.name, [GRIPPER_JOINT])
+        self.assertTrue(runtime._rospy.subscription.unregistered)
+
+    def test_gripper_readiness_uses_persistent_wait_on_shared_joint_states(self):
+        class RecordingRuntime(RosRuntime):
+            def __init__(self):
+                super().__init__(environment={})
+                self.busy_topic_wait = None
+
+            def _wait_for_initialized_gripper(self, *args):
+                return SimpleNamespace(is_initialized=True)
+
+            def _wait_for_named_joint_state(self, *args):
+                return SimpleNamespace(name=[GRIPPER_JOINT])
+
+            def _assert_fresh_advancing_joint_states(self, *args):
+                return None
+
+            def _wait_for_named_joint_on_busy_topic(self, *args):
+                self.busy_topic_wait = args
+                return SimpleNamespace(name=[GRIPPER_JOINT])
+
+        runtime = RecordingRuntime()
+        runtime.wait_gripper_ready(
+            StartupConfig(
+                robot_ip="192.168.131.3",
+                reverse_ip="192.168.131.1",
+                calibration_path="/tmp/real.yaml",
+                expected_calibration_hash="calib_13945068365021364089",
+            )
+        )
+
+        self.assertEqual(runtime.busy_topic_wait[0], "/joint_states")
+        self.assertEqual(runtime.busy_topic_wait[2], {GRIPPER_JOINT})
+
     def test_start_gripper_passes_the_confirmed_physical_device(self):
         class RecordingRuntime(RosRuntime):
             def __init__(self):
