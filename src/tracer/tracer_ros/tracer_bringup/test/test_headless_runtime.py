@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 from types import SimpleNamespace
 import os
+import signal
 import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 import yaml
 
@@ -29,6 +31,58 @@ from tracer_bringup.headless_startup import StartupConfig  # noqa: E402
 
 
 GRIPPER_JOINT = "gripper_finger1_joint"
+
+
+class D405LaunchOwnershipTest(unittest.TestCase):
+    @staticmethod
+    def config(enabled=True):
+        return StartupConfig(
+            robot_ip="192.168.131.3",
+            reverse_ip="192.168.131.1",
+            calibration_path="/tmp/real.yaml",
+            expected_calibration_hash="calib_13945068365021364089",
+            enable_d405=enabled,
+        )
+
+    def test_absent_camera_uses_dedicated_launch(self):
+        class RecordingRuntime(RosRuntime):
+            def __init__(self):
+                super().__init__(environment={})
+                self.launch = None
+
+            def _launch(self, label, command):
+                self.launch = (label, list(command))
+
+        runtime = RecordingRuntime()
+        runtime.d405_state = "absent"
+        runtime.start_d405(self.config())
+        self.assertEqual(
+            runtime.launch,
+            (
+                "d405_camera",
+                ["roslaunch", "tracer_bringup", "ur3_d405_camera.launch"],
+            ),
+        )
+
+    def test_external_or_disabled_camera_is_not_started(self):
+        for state, enabled in (("external", True), ("disabled", False)):
+            runtime = RosRuntime(environment={})
+            runtime.d405_state = state
+            runtime._launch = lambda *args: self.fail("must not launch D405")
+            runtime.start_d405(self.config(enabled))
+
+    def test_owned_camera_is_registered_and_shutdown_with_sigint(self):
+        process = mock.Mock(pid=4321)
+        process.poll.side_effect = (None, 0)
+        runtime = RosRuntime(environment={})
+        runtime.processes = [("d405_camera", process)]
+
+        with mock.patch.object(os, "getpgid", return_value=4321), mock.patch.object(
+            os, "killpg"
+        ) as killpg:
+            runtime.shutdown()
+
+        killpg.assert_called_once_with(4321, signal.SIGINT)
 
 
 class CameraNodeClassificationTest(unittest.TestCase):

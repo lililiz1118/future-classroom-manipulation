@@ -96,6 +96,24 @@ class HeadlessLaunchTest(unittest.TestCase):
         self.assertIn("dh_gripper_msgs", dependencies)
         self.assertIn("realsense2_camera", dependencies)
 
+    def test_d405_launch_contains_no_base_or_d455_nodes(self):
+        result = subprocess.run(
+            ["roslaunch", "--nodes", "tracer_bringup", "ur3_d405_camera.launch"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        nodes = set(result.stdout.splitlines())
+        self.assertEqual(
+            nodes,
+            {
+                "/d405/realsense2_camera_manager",
+                "/d405/realsense2_camera",
+                "/d405/d405_to_plate",
+            },
+        )
+        self.assertFalse(any("d455" in node for node in nodes))
+
 
 class HeadlessRvizConfigTest(unittest.TestCase):
     def test_uses_model_root_without_unrelated_navigation_or_camera_displays(self):

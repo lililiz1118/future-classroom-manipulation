@@ -270,6 +270,16 @@ class RosRuntime:
             ],
         )
 
+    def start_d405(self, config: StartupConfig) -> None:
+        if not config.enable_d405 or self.d405_state == "external":
+            return
+        if self.d405_state != "absent":
+            raise StartupError("Cannot start D405 from state: %s" % self.d405_state)
+        self._launch(
+            "d405_camera",
+            ["roslaunch", "tracer_bringup", "ur3_d405_camera.launch"],
+        )
+
     def _wait_for_master(self, timeout: float) -> None:
         uri = self.environment.get("ROS_MASTER_URI", "http://localhost:11311")
         parsed = urlparse(uri)

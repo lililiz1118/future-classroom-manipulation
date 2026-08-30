@@ -1,0 +1,5 @@
+<?xml version="1.0"?>
+<launch>
+  <!-- Own only the wrist D405: no base, D455, lidar, IMU, or photo service. -->
+  <include file="$(find realsense2_camera)/launch/rs_camera_d405.launch" />
+</launch>
