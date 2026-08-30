@@ -35,6 +35,11 @@ CONFLICTING_NODES = {
     "/servo_server",
     "/keyboard_jog",
 }
+REQUIRED_UR_DRIVER_EXECUTABLES = (
+    "ur_robot_driver_node",
+    "controller_stopper_node",
+    "robot_state_helper",
+)
 
 
 def assert_ros_network_environment(environment: Dict[str, str], reverse_ip: str) -> None:
@@ -137,6 +142,23 @@ class RosRuntime:
         version = self._run(["rosversion", "ur_robot_driver"], timeout=5.0).stdout.strip()
         if version != "2.4.1":
             raise StartupError("Expected ur_robot_driver 2.4.1, got %s" % (version or "unknown"))
+        for executable in REQUIRED_UR_DRIVER_EXECUTABLES:
+            result = self._run(
+                [
+                    "rosrun",
+                    "--prefix",
+                    "/usr/bin/true",
+                    "ur_robot_driver",
+                    executable,
+                ],
+                timeout=5.0,
+                required=False,
+            )
+            if result.returncode != 0:
+                raise StartupError(
+                    "Required ROS executable is unavailable: ur_robot_driver/%s\n%s"
+                    % (executable, (result.stderr or result.stdout).strip())
+                )
 
     def assert_no_conflicts(self) -> None:
         result = self._run(["rosnode", "list"], timeout=4.0, required=False)

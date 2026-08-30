@@ -1,8 +1,12 @@
 #!/usr/bin/env python3
 from types import SimpleNamespace
 import os
+import subprocess
 import sys
+import tempfile
 import unittest
+
+import yaml
 
 
 PACKAGE_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -19,9 +23,80 @@ from tracer_bringup.headless_runtime import (  # noqa: E402
     should_start_robot_state_publisher,
 )
 from tracer_bringup.headless_startup import StartupError  # noqa: E402
+from tracer_bringup.headless_startup import StartupConfig  # noqa: E402
 
 
 class RuntimePreflightTest(unittest.TestCase):
+    def test_preflight_rejects_driver_package_without_launch_executables(self):
+        kinematics = {
+            name: {
+                "x": 0.0,
+                "y": 0.0,
+                "z": 0.0,
+                "roll": 0.0,
+                "pitch": 0.0,
+                "yaw": 0.0,
+            }
+            for name in (
+                "shoulder",
+                "upper_arm",
+                "forearm",
+                "wrist_1",
+                "wrist_2",
+                "wrist_3",
+            )
+        }
+        kinematics["hash"] = "calib_13945068365021364089"
+        calibration = tempfile.NamedTemporaryFile(
+            mode="w", suffix=".yaml", delete=False
+        )
+        yaml.safe_dump({"kinematics": kinematics}, calibration)
+        calibration.close()
+        self.addCleanup(lambda: os.unlink(calibration.name))
+
+        class MissingDriverExecutablesRuntime(RosRuntime):
+            def _run(self, command, timeout=10.0, required=True):
+                if command[0] == "ping":
+                    return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+                if command[:3] == ["ip", "route", "get"]:
+                    return subprocess.CompletedProcess(
+                        command,
+                        0,
+                        stdout=(
+                            "192.168.131.3 dev enp2s0 src 192.168.131.1 uid 1000\n"
+                        ),
+                        stderr="",
+                    )
+                if command[:2] == ["rospack", "find"]:
+                    return subprocess.CompletedProcess(
+                        command, 0, stdout="/tmp/%s\n" % command[-1], stderr=""
+                    )
+                if command[:2] == ["rosversion", "ur_robot_driver"]:
+                    return subprocess.CompletedProcess(
+                        command, 0, stdout="2.4.1\n", stderr=""
+                    )
+                if command[:3] == ["rosrun", "--prefix", "/usr/bin/true"]:
+                    return subprocess.CompletedProcess(
+                        command,
+                        1,
+                        stdout="",
+                        stderr="Cannot locate node of type [%s]" % command[-1],
+                    )
+                raise AssertionError("Unexpected command: %r" % (command,))
+
+        runtime = MissingDriverExecutablesRuntime(
+            environment={"ROS_IP": "192.168.131.1"}
+        )
+        config = StartupConfig(
+            robot_ip="192.168.131.3",
+            reverse_ip="192.168.131.1",
+            calibration_path=calibration.name,
+            expected_calibration_hash="calib_13945068365021364089",
+        )
+
+        with self.assertRaisesRegex(StartupError, "ur_robot_driver_node"):
+            runtime.preflight(config)
+
     def test_route_must_use_the_ur_private_interface(self):
         assert_route_uses_reverse_ip(
             "192.168.131.3 dev enp2s0 src 192.168.131.1 uid 1000", "192.168.131.1"
