@@ -14,6 +14,7 @@ sys.path.insert(0, os.path.join(PACKAGE_ROOT, "src"))
 
 from tracer_bringup.headless_runtime import (  # noqa: E402
     REQUIRED_JOINTS,
+    SPEED_SCALING_TOPIC,
     RosRuntime,
     assert_joint_state_complete,
     assert_no_conflicting_nodes,
@@ -27,6 +28,9 @@ from tracer_bringup.headless_startup import StartupConfig  # noqa: E402
 
 
 class RuntimePreflightTest(unittest.TestCase):
+    def test_speed_scaling_topic_matches_the_driver_published_interface(self):
+        self.assertEqual(SPEED_SCALING_TOPIC, "/ur/speed_scaling_factor")
+
     def test_preflight_rejects_driver_package_without_launch_executables(self):
         kinematics = {
             name: {

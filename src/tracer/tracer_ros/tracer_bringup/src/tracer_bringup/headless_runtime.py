@@ -26,9 +26,7 @@ REQUIRED_JOINTS = (
     "ur_arm_wrist_3_joint",
 )
 TARGET_CONTROLLER = "ur_arm_scaled_pos_joint_traj_controller"
-SPEED_SCALING_TOPIC = (
-    "/ur/ur_arm_speed_scaling_state_controller/speed_scaling_factor"
-)
+SPEED_SCALING_TOPIC = "/ur/speed_scaling_factor"
 CONFLICTING_NODES = {
     "/ur/ur_hardware_interface",
     "/move_group",
