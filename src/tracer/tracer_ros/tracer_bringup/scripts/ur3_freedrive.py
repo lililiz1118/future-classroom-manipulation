@@ -21,6 +21,8 @@ import termios
 import tty
 import signal
 
+from tracer_bringup.freedrive_camera import CameraViewError, CameraViewSession
+
 ROBOT_IP_DEFAULT = os.environ.get("TRACER_UR_IP", "192.168.131.3")
 DASHBOARD_PORT = 29999
 SECONDARY_PORT = 30002
@@ -28,6 +30,10 @@ SECONDARY_PORT = 30002
 # 默认标定负载参数 (AG95 夹爪 0.99kg + D405 相机 0.072kg + 支架螺丝 0.18kg)
 DEFAULT_PAYLOAD_MASS = 1.24          # kg
 DEFAULT_PAYLOAD_COG = [0.012, 0.0, 0.072]  # [X: 12mm, Y: 0mm, Z: 72mm]
+
+
+class FreedriveStopError(RuntimeError):
+    """Raised when the robot cannot be confirmed out of freedrive."""
 
 
 def recvall(sock, n):
@@ -209,7 +215,18 @@ def stop_freedrive(host=ROBOT_IP_DEFAULT, port=SECONDARY_PORT):
         s.sendall(script.encode("utf-8"))
         s.close()
     except Exception as e:
-        print(f"停止指令发送异常: {e}")
+        raise FreedriveStopError(f"停止指令发送异常: {e}") from e
+
+    last_response = ""
+    for _ in range(10):
+        last_response = dashboard_exchange("running", host=host)
+        normalized = last_response.strip().lower()
+        if "program running: false" in normalized:
+            return
+        time.sleep(0.2)
+    raise FreedriveStopError(
+        "停止指令已发送，但无法确认 Freedrive 程序已经结束: %s" % last_response
+    )
 
 
 class NonBlockingInput:
@@ -252,34 +269,47 @@ def main():
     if not ensure_power_and_brakes(host):
         sys.exit(1)
 
-    # 3. 准备负载参数
-    print(f"📦 注入重力补偿负载 -> 质量: {DEFAULT_PAYLOAD_MASS:.2f} kg, 质心: ({DEFAULT_PAYLOAD_COG[0]*1000:.0f}mm, {DEFAULT_PAYLOAD_COG[1]*1000:.0f}mm, {DEFAULT_PAYLOAD_COG[2]*1000:.0f}mm)")
-
-    # 4. 激活 Freedrive 模式
-    print("\n" + "-" * 72)
-    print("🟢 正在激活【零重力拖动模式】...")
-    start_freedrive(DEFAULT_PAYLOAD_MASS, DEFAULT_PAYLOAD_COG, host)
-    time.sleep(0.3)
-
-    print("=" * 72)
-    print("🎉 零重力模式已开启！您现在可以用手扶住夹爪自由拖动机械臂。")
-    print("=" * 72)
-    print("⌨️  操作快捷键:")
-    print("  👉 按 [Enter 回车] 或 [Q 键] 或 [Ctrl+C] : 立即锁定并退出零重力模式")
-    print("  👉 按 [R 键] 或 [空格键 Space]           : 记录当前示教点 (打点采样)")
-    print("-" * 72)
+    # 3. 启动或复用 D405，并在机器人本机显示器打开实时彩色画面
+    camera_view = CameraViewSession()
+    print("📷 正在启动 D405 并打开机器人本机实时画面...")
+    try:
+        camera_view.start()
+    except CameraViewError as exc:
+        camera_view.shutdown()
+        print(f"❌ D405 实时画面启动失败: {exc}")
+        print("   未进入零重力拖动模式。")
+        sys.exit(1)
+    print("✅ D405 彩色画面已在机器人显示器上打开。")
 
     recorded_waypoints = []
     start_time = time.time()
+    finished = False
+    freedrive_active = False
 
-    def handle_exit(signum=None, frame=None):
-        print("\n\n🔒 正在锁定机械臂并退出零重力模式...")
-        stop_freedrive(host)
-        time.sleep(0.5)
-        final_q = read_joint_angles(host)
-        final_deg = [round(math.degrees(a), 2) for a in final_q]
-        print(f"✅ 机械臂已安全锁定！")
-        print(f"📍 最终锁定位姿 (关节角度/度): {final_deg}")
+    def handle_exit(signum=None, frame=None, exit_code=0):
+        nonlocal finished, freedrive_active
+        if finished:
+            return
+        finished = True
+
+        if freedrive_active:
+            print("\n\n🔒 正在锁定机械臂并退出零重力模式...")
+            try:
+                stop_freedrive(host)
+            except FreedriveStopError as exc:
+                print(f"\n🛑 无法确认机械臂已退出 Freedrive: {exc}")
+                print("   相机画面保持开启；请立即使用实体急停/示教器，并再次按 Q 重试锁定。")
+                finished = False
+                return
+            freedrive_active = False
+            time.sleep(0.5)
+            final_q = read_joint_angles(host)
+            final_deg = [round(math.degrees(a), 2) for a in final_q]
+            print("✅ 机械臂已确认退出 Freedrive 并锁定！")
+            print(f"📍 最终锁定位姿 (关节角度/度): {final_deg}")
+
+        camera_view.shutdown()
+        print("✅ D405 实时画面已关闭。")
 
         if recorded_waypoints:
             print("\n" + "=" * 72)
@@ -291,29 +321,65 @@ def main():
                 print(f"    角度 (deg): [{deg_str}]")
                 print(f"    弧度 (rad): [{rad_str}]")
             print("=" * 72)
-        sys.exit(0)
+        sys.exit(exit_code)
 
     signal.signal(signal.SIGINT, handle_exit)
     signal.signal(signal.SIGTERM, handle_exit)
+    signal.signal(signal.SIGHUP, handle_exit)
 
-    with NonBlockingInput() as nbi:
-        while True:
-            key = nbi.get_key()
-            if key is not None:
-                if key in ['\n', '\r', 'q', 'Q', '\x03']:
-                    handle_exit()
-                elif key in ['r', 'R', ' ']:
-                    cur_q = read_joint_angles(host)
-                    cur_deg = [round(math.degrees(a), 2) for a in cur_q]
-                    elapsed = time.time() - start_time
-                    recorded_waypoints.append({
-                        "time": elapsed,
-                        "deg": cur_deg,
-                        "rad": cur_q
-                    })
-                    print(f"  📌 [已记录第 {len(recorded_waypoints)} 个示教点] (t={elapsed:.1f}s) -> 角度: {cur_deg}")
+    # 4. 准备负载参数
+    print(f"📦 注入重力补偿负载 -> 质量: {DEFAULT_PAYLOAD_MASS:.2f} kg, 质心: ({DEFAULT_PAYLOAD_COG[0]*1000:.0f}mm, {DEFAULT_PAYLOAD_COG[1]*1000:.0f}mm, {DEFAULT_PAYLOAD_COG[2]*1000:.0f}mm)")
 
-            time.sleep(0.05)
+    # 5. 激活 Freedrive 模式
+    print("\n" + "-" * 72)
+    print("🟢 正在激活【零重力拖动模式】...")
+    freedrive_active = True
+    try:
+        start_freedrive(DEFAULT_PAYLOAD_MASS, DEFAULT_PAYLOAD_COG, host)
+        time.sleep(0.3)
+
+        print("=" * 72)
+        print("🎉 零重力模式已开启！您现在可以用手扶住夹爪自由拖动机械臂。")
+        print("=" * 72)
+        print("⌨️  操作快捷键:")
+        print("  👉 按 [Enter 回车] 或 [Q 键] 或 [Ctrl+C] : 立即锁定并退出零重力模式")
+        print("  👉 按 [R 键] 或 [空格键 Space]           : 记录当前示教点 (打点采样)")
+        print("-" * 72)
+
+        with NonBlockingInput() as nbi:
+            while True:
+                try:
+                    camera_view.assert_alive()
+                except CameraViewError as exc:
+                    print(f"\n❌ D405 实时画面异常: {exc}")
+                    handle_exit(exit_code=1)
+                key = nbi.get_key()
+                if key is not None:
+                    if key in ['\n', '\r', 'q', 'Q', '\x03']:
+                        handle_exit()
+                    elif key in ['r', 'R', ' ']:
+                        cur_q = read_joint_angles(host)
+                        cur_deg = [round(math.degrees(a), 2) for a in cur_q]
+                        elapsed = time.time() - start_time
+                        recorded_waypoints.append({
+                            "time": elapsed,
+                            "deg": cur_deg,
+                            "rad": cur_q
+                        })
+                        print(f"  📌 [已记录第 {len(recorded_waypoints)} 个示教点] (t={elapsed:.1f}s) -> 角度: {cur_deg}")
+
+                time.sleep(0.05)
+    except BaseException:
+        if freedrive_active:
+            try:
+                stop_freedrive(host)
+            except FreedriveStopError as exc:
+                print(f"\n🛑 异常退出且无法确认机械臂已停止: {exc}")
+                print("   相机画面保持开启；请立即使用实体急停/示教器。")
+                raise
+            freedrive_active = False
+        camera_view.shutdown()
+        raise
 
 
 if __name__ == "__main__":
