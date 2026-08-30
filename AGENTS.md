@@ -23,8 +23,9 @@ belong to other repositories and must not be claimed as this repository's work.
 ```bash
 cd /home/jt001/tracer_ws/.worktrees/ur3-headless-moveit
 source /opt/ros/noetic/setup.bash
-catkin_make
+catkin_make -DCATKIN_WHITELIST_PACKAGES='dh_gripper_driver;dh_gripper_msgs;moveit_config;realsense2_camera;tcurdf;tracer_bringup;ur_dashboard_msgs;ur_description;ur_msgs;ur_robot_driver'
 source devel/setup.bash
+test -f devel/lib/librealsense2_camera.so
 ```
 
 Use `roslaunch --dump-params` for launch checks that must not start hardware.

@@ -46,6 +46,7 @@ D455_NODES = {
     "/d455/realsense2_camera",
     "/d455/realsense2_camera_manager",
 }
+D405_NODELET_LIBRARY = "librealsense2_camera.so"
 REQUIRED_ROS_EXECUTABLES = (
     ("ur_robot_driver", "ur_robot_driver_node"),
     ("ur_robot_driver", "controller_stopper_node"),
@@ -119,6 +120,33 @@ def classify_d405_nodes(nodes: Iterable[str], enable_d405: bool) -> str:
         "Incomplete D405 node set; stop the old D405 launch before retrying; "
         "present=%s missing=%s"
         % (", ".join(sorted(present)), ", ".join(missing))
+    )
+
+
+def assert_d405_nodelet_library_available(environment: Dict[str, str]) -> None:
+    search_directories = []
+    for directory in environment.get("LD_LIBRARY_PATH", "").split(os.pathsep):
+        if directory:
+            search_directories.append(directory)
+    for prefix in environment.get("CMAKE_PREFIX_PATH", "").split(os.pathsep):
+        if prefix:
+            search_directories.append(os.path.join(prefix, "lib"))
+
+    checked = []
+    for directory in search_directories:
+        candidate = os.path.join(directory, D405_NODELET_LIBRARY)
+        if candidate in checked:
+            continue
+        checked.append(candidate)
+        if os.path.isfile(candidate):
+            return
+
+    locations = ", ".join(checked) if checked else "no ROS library paths configured"
+    raise StartupError(
+        "Required D405 nodelet library %s is missing from the active workspace "
+        "(%s); rebuild the worktree with realsense2_camera included in "
+        "CATKIN_WHITELIST_PACKAGES, then run catkin_make"
+        % (D405_NODELET_LIBRARY, locations)
     )
 
 
@@ -229,11 +257,16 @@ class RosRuntime:
             assert_no_conflicting_nodes(nodes)
             self.start_robot_state_publisher = should_start_robot_state_publisher(nodes)
             self.d405_state = classify_d405_nodes(nodes, config.enable_d405)
-            return
-        diagnostics = str(result.stderr or result.stdout).lower()
-        if not any(text in diagnostics for text in ("master", "connection refused", "unable to communicate")):
-            raise StartupError("Cannot inspect existing ROS nodes: %s" % diagnostics.strip())
-        self.d405_state = "disabled" if not config.enable_d405 else "absent"
+        else:
+            diagnostics = str(result.stderr or result.stdout).lower()
+            if not any(
+                text in diagnostics
+                for text in ("master", "connection refused", "unable to communicate")
+            ):
+                raise StartupError("Cannot inspect existing ROS nodes: %s" % diagnostics.strip())
+            self.d405_state = "disabled" if not config.enable_d405 else "absent"
+        if self.d405_state == "absent":
+            assert_d405_nodelet_library_available(self.environment)
 
     def _launch(self, label: str, command: Sequence[str]) -> None:
         try:

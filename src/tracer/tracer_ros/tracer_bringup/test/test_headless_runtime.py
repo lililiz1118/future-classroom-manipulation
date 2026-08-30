@@ -276,6 +276,63 @@ class RuntimePreflightTest(unittest.TestCase):
         with self.assertRaisesRegex(StartupError, "dh_gripper_driver"):
             runtime.preflight(config)
 
+    def test_owned_d405_requires_the_nodelet_library_but_external_d405_does_not(self):
+        class NodesRuntime(RosRuntime):
+            def __init__(self, nodes, environment):
+                super().__init__(environment=environment)
+                self.nodes = nodes
+
+            def _run(self, command, timeout=10.0, required=True):
+                if command == ["rosnode", "list"]:
+                    return subprocess.CompletedProcess(
+                        command,
+                        0,
+                        stdout="\n".join(self.nodes) + "\n",
+                        stderr="",
+                    )
+                raise AssertionError("Unexpected command: %r" % (command,))
+
+        with tempfile.TemporaryDirectory() as prefix:
+            environment = {
+                "CMAKE_PREFIX_PATH": prefix,
+                "LD_LIBRARY_PATH": os.path.join(prefix, "lib"),
+            }
+            with self.assertRaisesRegex(
+                StartupError, "librealsense2_camera.so.*catkin_make"
+            ):
+                NodesRuntime([], environment).assert_no_conflicts(
+                    StartupConfig(
+                        robot_ip="",
+                        reverse_ip="",
+                        calibration_path="",
+                        expected_calibration_hash="",
+                        enable_d405=True,
+                    )
+                )
+
+            external_nodes = [
+                "/d405/realsense2_camera",
+                "/d405/realsense2_camera_manager",
+            ]
+            NodesRuntime(external_nodes, environment).assert_no_conflicts(
+                StartupConfig(
+                    robot_ip="",
+                    reverse_ip="",
+                    calibration_path="",
+                    expected_calibration_hash="",
+                    enable_d405=True,
+                )
+            )
+            NodesRuntime([], environment).assert_no_conflicts(
+                StartupConfig(
+                    robot_ip="",
+                    reverse_ip="",
+                    calibration_path="",
+                    expected_calibration_hash="",
+                    enable_d405=False,
+                )
+            )
+
     def test_route_must_use_the_ur_private_interface(self):
         assert_route_uses_reverse_ip(
             "192.168.131.3 dev enp2s0 src 192.168.131.1 uid 1000", "192.168.131.1"

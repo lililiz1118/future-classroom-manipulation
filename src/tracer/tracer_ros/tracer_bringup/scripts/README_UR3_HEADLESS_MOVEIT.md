@@ -10,6 +10,20 @@
 - 启动器不会自动 Execute 任何轨迹；轨迹执行必须由操作者在 RViz 中单独确认。
 - 输入 `START` 后 Dashboard 会上电/松闸，且 AG95 可能运动。夹爪驱动不会自动 respawn；异常退出后必须重新运行启动器并再次确认。
 
+## 首次构建或清理后重建
+
+D405 nodelet 必须和机械臂相关包一起构建在当前 worktree 中。不要只依赖主工作区遗留的相机库：
+
+```bash
+cd /home/jt001/tracer_ws/.worktrees/ur3-headless-moveit
+source /opt/ros/noetic/setup.bash
+catkin_make -DCATKIN_WHITELIST_PACKAGES='dh_gripper_driver;dh_gripper_msgs;moveit_config;realsense2_camera;tcurdf;tracer_bringup;ur_dashboard_msgs;ur_description;ur_msgs;ur_robot_driver'
+source devel/setup.bash
+test -f devel/lib/librealsense2_camera.so
+```
+
+若缺少该库，启动器会在 Dashboard 上电和松闸之前停止，并提示重新构建。
+
 ## 在此工作树启动
 
 在机器人电脑本地终端运行。默认命令无需 base launch，会要求或启动 D405：
