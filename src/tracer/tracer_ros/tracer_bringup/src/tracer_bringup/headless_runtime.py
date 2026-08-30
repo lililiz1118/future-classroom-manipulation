@@ -399,11 +399,30 @@ class RosRuntime:
     def _assert_fresh_advancing_joint_states(
         self, first: Any, second: Any, topic: str
     ) -> None:
+        self._assert_fresh_advancing_headers(first, second, topic)
+
+    def _assert_fresh_advancing_headers(
+        self, first: Any, second: Any, topic: str
+    ) -> None:
         if second.header.stamp <= first.header.stamp:
             raise StartupError("%s timestamps are not advancing" % topic)
         age = (self._rospy.Time.now() - second.header.stamp).to_sec()
-        if age < 0.0 or age > 1.0:
+        if age < 0.0:
+            raise StartupError(
+                "%s timestamp is in the future by %.3f seconds" % (topic, -age)
+            )
+        if age > 1.0:
             raise StartupError("%s is stale by %.3f seconds" % (topic, age))
+
+    def _camera_startup_error(self, message: str) -> StartupError:
+        for label, process in self.processes:
+            if label == "d405_camera":
+                code = process.poll()
+                if code is not None:
+                    return StartupError(
+                        "d405_camera exited unexpectedly with code %d" % code
+                    )
+        return StartupError(message)
 
     def _wait_for_speed_range(
         self, topic: str, message_type: Any, requested: float, timeout: float
@@ -475,6 +494,67 @@ class RosRuntime:
         self._wait_for_named_joint_on_busy_topic(
             "/joint_states", JointState, {GRIPPER_JOINT}, 5.0
         )
+
+    def wait_d405_ready(self, config: StartupConfig) -> None:
+        if not config.enable_d405:
+            return
+
+        self._init_ros(config.state_timeout)
+        from sensor_msgs.msg import CameraInfo, Image
+
+        color_topic = "/d405/color/image_raw"
+        depth_topic = "/d405/depth/image_rect_raw"
+        info_topic = "/d405/color/camera_info"
+        deadline = time.monotonic() + config.state_timeout
+
+        def receive(topic: str, message_type: Any) -> Any:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0.0:
+                raise self._camera_startup_error(
+                    "Timed out waiting for required D405 message on %s" % topic
+                )
+            try:
+                return self._rospy.wait_for_message(
+                    topic, message_type, timeout=remaining
+                )
+            except self._rospy.ROSException as exc:
+                raise self._camera_startup_error(
+                    "Timed out waiting for required D405 message on %s: %s"
+                    % (topic, exc)
+                ) from exc
+
+        color_first = receive(color_topic, Image)
+        color_second = receive(color_topic, Image)
+        self._assert_fresh_advancing_headers(
+            color_first, color_second, color_topic
+        )
+        color_dimensions = (color_second.width, color_second.height)
+        if color_dimensions[0] <= 0 or color_dimensions[1] <= 0:
+            raise StartupError(
+                "%s dimensions must be positive; got %dx%d"
+                % (color_topic, color_dimensions[0], color_dimensions[1])
+            )
+
+        depth_first = receive(depth_topic, Image)
+        depth_second = receive(depth_topic, Image)
+        self._assert_fresh_advancing_headers(
+            depth_first, depth_second, depth_topic
+        )
+
+        color_info = receive(info_topic, CameraInfo)
+        info_dimensions = (color_info.width, color_info.height)
+        if info_dimensions != color_dimensions:
+            raise StartupError(
+                "%s camera_info dimensions %dx%d do not match %s dimensions %dx%d"
+                % (
+                    info_topic,
+                    info_dimensions[0],
+                    info_dimensions[1],
+                    color_topic,
+                    color_dimensions[0],
+                    color_dimensions[1],
+                )
+            )
 
     def set_speed_slider(self, fraction: float) -> None:
         from std_msgs.msg import Float64

@@ -337,6 +337,164 @@ class RuntimePreflightTest(unittest.TestCase):
         )
 
 
+class CameraDuration:
+    def __init__(self, seconds):
+        self.seconds = seconds
+
+    def to_sec(self):
+        return self.seconds
+
+
+class CameraStamp:
+    def __init__(self, seconds):
+        self.seconds = seconds
+
+    def __le__(self, other):
+        return self.seconds <= other.seconds
+
+    def __sub__(self, other):
+        return CameraDuration(self.seconds - other.seconds)
+
+
+def image(stamp, width=640, height=480):
+    return SimpleNamespace(
+        header=SimpleNamespace(stamp=CameraStamp(stamp)),
+        width=width,
+        height=height,
+    )
+
+
+def camera_info(width, height):
+    return SimpleNamespace(width=width, height=height)
+
+
+def camera_config(enable_d405=True):
+    return StartupConfig(
+        robot_ip="192.168.131.3",
+        reverse_ip="192.168.131.1",
+        calibration_path="/tmp/real.yaml",
+        expected_calibration_hash="calib_13945068365021364089",
+        state_timeout=0.01,
+        enable_d405=enable_d405,
+    )
+
+
+class FakeCameraRospy:
+    class ROSException(Exception):
+        pass
+
+    def __init__(self, messages, now):
+        self.messages = {topic: list(values) for topic, values in messages.items()}
+        self.calls = []
+        now_stamp = CameraStamp(now)
+        self.Time = SimpleNamespace(now=lambda: now_stamp)
+
+    def wait_for_message(self, topic, message_type, timeout):
+        self.calls.append((topic, timeout))
+        values = self.messages.get(topic, [])
+        if not values:
+            raise self.ROSException("timeout")
+        return values.pop(0)
+
+
+def camera_runtime(color, depth, info, now):
+    runtime = RosRuntime(environment={})
+    runtime._rospy = FakeCameraRospy(
+        {
+            "/d405/color/image_raw": color,
+            "/d405/depth/image_rect_raw": depth,
+            "/d405/color/camera_info": info,
+        },
+        now,
+    )
+    return runtime
+
+
+class D405ReadinessTest(unittest.TestCase):
+    def test_ready_requires_exactly_two_color_depth_frames_and_matching_info(self):
+        runtime = camera_runtime(
+            color=[image(99.8), image(99.9)],
+            depth=[image(99.8), image(99.9)],
+            info=[camera_info(640, 480)],
+            now=100.0,
+        )
+
+        runtime.wait_d405_ready(camera_config())
+
+        self.assertEqual(
+            [topic for topic, _timeout in runtime._rospy.calls],
+            [
+                "/d405/color/image_raw",
+                "/d405/color/image_raw",
+                "/d405/depth/image_rect_raw",
+                "/d405/depth/image_rect_raw",
+                "/d405/color/camera_info",
+            ],
+        )
+
+    def test_disabled_camera_returns_without_subscribing(self):
+        runtime = camera_runtime(color=[], depth=[], info=[], now=100.0)
+
+        runtime.wait_d405_ready(camera_config(enable_d405=False))
+
+        self.assertEqual(runtime._rospy.calls, [])
+
+    def test_missing_color_reports_exact_topic(self):
+        runtime = camera_runtime(color=[], depth=[], info=[], now=100.0)
+        with self.assertRaisesRegex(StartupError, "/d405/color/image_raw"):
+            runtime.wait_d405_ready(camera_config())
+
+    def test_non_advancing_stale_and_future_color_are_rejected(self):
+        cases = (
+            ([image(99.9), image(99.9)], "not advancing"),
+            ([image(97.0), image(98.0)], "stale"),
+            ([image(100.1), image(100.2)], "future"),
+        )
+        for color, reason in cases:
+            with self.subTest(reason=reason):
+                runtime = camera_runtime(color=color, depth=[], info=[], now=100.0)
+                with self.assertRaisesRegex(
+                    StartupError, "/d405/color/image_raw.*%s" % reason
+                ):
+                    runtime.wait_d405_ready(camera_config())
+
+    def test_non_positive_color_dimensions_are_rejected(self):
+        for width, height in ((0, 480), (640, 0), (-1, 480), (640, -1)):
+            with self.subTest(width=width, height=height):
+                runtime = camera_runtime(
+                    color=[image(99.8), image(99.9, width=width, height=height)],
+                    depth=[image(99.8), image(99.9)],
+                    info=[camera_info(width, height)],
+                    now=100.0,
+                )
+                with self.assertRaisesRegex(
+                    StartupError, "/d405/color/image_raw.*positive"
+                ):
+                    runtime.wait_d405_ready(camera_config())
+
+    def test_camera_info_must_match_positive_color_dimensions(self):
+        runtime = camera_runtime(
+            color=[image(99.8), image(99.9)],
+            depth=[image(99.8), image(99.9)],
+            info=[camera_info(1280, 720)],
+            now=100.0,
+        )
+        with self.assertRaisesRegex(
+            StartupError, "camera_info.*1280x720.*640x480"
+        ):
+            runtime.wait_d405_ready(camera_config())
+
+    def test_owned_camera_exit_replaces_generic_timeout(self):
+        runtime = camera_runtime(color=[], depth=[], info=[], now=100.0)
+        runtime.processes.append(
+            ("d405_camera", SimpleNamespace(poll=lambda: 7))
+        )
+        with self.assertRaisesRegex(
+            StartupError, "d405_camera exited unexpectedly with code 7"
+        ):
+            runtime.wait_d405_ready(camera_config())
+
+
 class RosSnapshotTest(unittest.TestCase):
     def test_gripper_joint_samples_must_advance_and_be_fresh(self):
         class Duration:
