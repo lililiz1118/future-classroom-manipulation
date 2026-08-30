@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
+import os
 import subprocess
 import shutil
 import unittest
 
 import yaml
+
+
+PACKAGE_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 
 
 @unittest.skipUnless(shutil.which("roslaunch"), "requires a ROS Noetic environment")
@@ -90,6 +94,45 @@ class HeadlessLaunchTest(unittest.TestCase):
 
         self.assertIn("dh_gripper_driver", dependencies)
         self.assertIn("dh_gripper_msgs", dependencies)
+
+
+class HeadlessRvizConfigTest(unittest.TestCase):
+    def test_uses_model_root_without_unrelated_navigation_or_camera_displays(self):
+        config_path = os.path.join(
+            PACKAGE_ROOT, "config", "ur3_headless_moveit.rviz"
+        )
+        with open(config_path, "r", encoding="utf-8") as stream:
+            config = yaml.safe_load(stream)
+
+        panel_classes = {panel["Class"] for panel in config["Panels"]}
+        self.assertEqual(panel_classes, {"rviz/Displays", "rviz/Views"})
+
+        manager = config["Visualization Manager"]
+        self.assertEqual(manager["Global Options"]["Fixed Frame"], "base_link")
+
+        enabled_classes = {
+            display["Class"]
+            for display in manager["Displays"]
+            if display.get("Enabled", True)
+        }
+        self.assertIn("rviz/Grid", enabled_classes)
+        self.assertIn("rviz/RobotModel", enabled_classes)
+        self.assertIn("moveit_rviz_plugin/MotionPlanning", enabled_classes)
+        self.assertTrue(
+            enabled_classes.isdisjoint(
+                {"rviz/Image", "rviz/Map", "rviz/PointCloud2"}
+            )
+        )
+
+        motion_planning = next(
+            display
+            for display in manager["Displays"]
+            if display["Class"] == "moveit_rviz_plugin/MotionPlanning"
+        )
+        self.assertNotIn("Planning Group", motion_planning)
+        self.assertEqual(
+            motion_planning["Planning Request"]["Planning Group"], "arm"
+        )
 
 
 if __name__ == "__main__":

@@ -8,7 +8,7 @@ import stat
 import subprocess
 import threading
 import time
-from typing import Any, Dict, Iterable, List, Sequence
+from typing import Any, Callable, Dict, Iterable, List, Sequence
 from urllib.parse import urlparse
 
 from .headless_startup import (
@@ -38,10 +38,11 @@ CONFLICTING_NODES = {
     "/dh_gripper_driver",
     "/gripper_joint_state_relay",
 }
-REQUIRED_UR_DRIVER_EXECUTABLES = (
-    "ur_robot_driver_node",
-    "controller_stopper_node",
-    "robot_state_helper",
+REQUIRED_ROS_EXECUTABLES = (
+    ("ur_robot_driver", "ur_robot_driver_node"),
+    ("ur_robot_driver", "controller_stopper_node"),
+    ("ur_robot_driver", "robot_state_helper"),
+    ("dh_gripper_driver", "dh_gripper_driver"),
 )
 
 
@@ -73,7 +74,11 @@ def assert_ros_network_environment(environment: Dict[str, str], reverse_ip: str)
 
 def assert_route_uses_reverse_ip(route_output: str, reverse_ip: str) -> None:
     tokens = route_output.split()
-    if "src" not in tokens or tokens[tokens.index("src") + 1] != reverse_ip:
+    try:
+        route_source = tokens[tokens.index("src") + 1]
+    except (ValueError, IndexError):
+        route_source = None
+    if route_source != reverse_ip:
         raise StartupError(
             "Route to UR controller does not use ROS host address %s: %s"
             % (reverse_ip, route_output.strip())
@@ -88,12 +93,6 @@ def assert_no_conflicting_nodes(nodes: Iterable[str]) -> None:
 
 def should_start_robot_state_publisher(nodes: Iterable[str]) -> bool:
     return "/robot_state_publisher" not in set(nodes)
-
-
-def assert_joint_state_complete(message: Any) -> None:
-    missing = sorted(set(REQUIRED_JOINTS) - set(message.name))
-    if missing:
-        raise StartupError("/joint_states is missing UR joints: %s" % ", ".join(missing))
 
 
 def controller_snapshot(response: Any) -> List[Dict[str, Any]]:
@@ -147,6 +146,28 @@ class RosRuntime:
             )
         return result
 
+    def _assert_ros_executable_available(self, package: str, executable: str) -> None:
+        result = self._run(
+            [
+                "rosrun",
+                "--prefix",
+                "/usr/bin/true",
+                package,
+                executable,
+            ],
+            timeout=5.0,
+            required=False,
+        )
+        if result.returncode != 0:
+            raise StartupError(
+                "Required ROS executable is unavailable: %s/%s\n%s"
+                % (
+                    package,
+                    executable,
+                    (result.stderr or result.stdout).strip(),
+                )
+            )
+
     def preflight(self, config: StartupConfig) -> None:
         assert_ros_network_environment(self.environment, config.reverse_ip)
         validate_calibration(config.calibration_path, config.expected_calibration_hash)
@@ -165,40 +186,8 @@ class RosRuntime:
         version = self._run(["rosversion", "ur_robot_driver"], timeout=5.0).stdout.strip()
         if version != "2.4.1":
             raise StartupError("Expected ur_robot_driver 2.4.1, got %s" % (version or "unknown"))
-        for executable in REQUIRED_UR_DRIVER_EXECUTABLES:
-            result = self._run(
-                [
-                    "rosrun",
-                    "--prefix",
-                    "/usr/bin/true",
-                    "ur_robot_driver",
-                    executable,
-                ],
-                timeout=5.0,
-                required=False,
-            )
-            if result.returncode != 0:
-                raise StartupError(
-                    "Required ROS executable is unavailable: ur_robot_driver/%s\n%s"
-                    % (executable, (result.stderr or result.stdout).strip())
-                )
-        result = self._run(
-            [
-                "rosrun",
-                "--prefix",
-                "/usr/bin/true",
-                "dh_gripper_driver",
-                "dh_gripper_driver",
-            ],
-            timeout=5.0,
-            required=False,
-        )
-        if result.returncode != 0:
-            raise StartupError(
-                "Required ROS executable is unavailable: "
-                "dh_gripper_driver/dh_gripper_driver\n%s"
-                % (result.stderr or result.stdout).strip()
-            )
+        for package, executable in REQUIRED_ROS_EXECUTABLES:
+            self._assert_ros_executable_available(package, executable)
 
     def assert_no_conflicts(self) -> None:
         result = self._run(["rosnode", "list"], timeout=4.0, required=False)
@@ -271,7 +260,14 @@ class RosRuntime:
         rospy.init_node("ur3_headless_startup", anonymous=True, disable_signals=True)
         self._rospy = rospy
 
-    def _wait_for_true(self, topic: str, message_type: Any, timeout: float) -> Any:
+    def _wait_for_matching_message(
+        self,
+        topic: str,
+        message_type: Any,
+        timeout: float,
+        accepts: Callable[[Any], bool],
+        timeout_error: Callable[[Any], str],
+    ) -> Any:
         deadline = time.monotonic() + timeout
         last = None
         while time.monotonic() < deadline:
@@ -283,26 +279,19 @@ class RosRuntime:
                 )
             except self._rospy.ROSException:
                 continue
-            if bool(last.data):
+            if accepts(last):
                 return last
-        raise StartupError("Timed out waiting for true on %s; last=%s" % (topic, last))
+        raise StartupError(timeout_error(last))
 
-    def _wait_for_complete_joint_state(
-        self, topic: str, message_type: Any, timeout: float
-    ) -> Any:
-        deadline = time.monotonic() + timeout
-        while time.monotonic() < deadline:
-            try:
-                message = self._rospy.wait_for_message(
-                    topic,
-                    message_type,
-                    timeout=max(0.1, min(1.0, deadline - time.monotonic())),
-                )
-            except self._rospy.ROSException:
-                continue
-            if set(REQUIRED_JOINTS).issubset(message.name):
-                return message
-        raise StartupError("Timed out waiting for all six UR joints on %s" % topic)
+    def _wait_for_true(self, topic: str, message_type: Any, timeout: float) -> Any:
+        return self._wait_for_matching_message(
+            topic,
+            message_type,
+            timeout,
+            lambda message: bool(message.data),
+            lambda last: "Timed out waiting for true on %s; last=%s"
+            % (topic, last),
+        )
 
     def _wait_for_named_joint_state(
         self,
@@ -312,21 +301,13 @@ class RosRuntime:
         timeout: float,
     ) -> Any:
         required = set(required_joints)
-        deadline = time.monotonic() + timeout
-        while time.monotonic() < deadline:
-            try:
-                message = self._rospy.wait_for_message(
-                    topic,
-                    message_type,
-                    timeout=max(0.1, min(1.0, deadline - time.monotonic())),
-                )
-            except self._rospy.ROSException:
-                continue
-            if required.issubset(message.name):
-                return message
-        raise StartupError(
-            "Timed out waiting for joints %s on %s"
-            % (", ".join(sorted(required)), topic)
+        description = "joints %s" % ", ".join(sorted(required))
+        return self._wait_for_matching_message(
+            topic,
+            message_type,
+            timeout,
+            lambda message: required.issubset(message.name),
+            lambda _last: "Timed out waiting for %s on %s" % (description, topic),
         )
 
     def _wait_for_named_joint_on_busy_topic(
@@ -361,21 +342,13 @@ class RosRuntime:
     def _wait_for_initialized_gripper(
         self, topic: str, message_type: Any, timeout: float
     ) -> Any:
-        deadline = time.monotonic() + timeout
-        last = None
-        while time.monotonic() < deadline:
-            try:
-                last = self._rospy.wait_for_message(
-                    topic,
-                    message_type,
-                    timeout=max(0.1, min(1.0, deadline - time.monotonic())),
-                )
-            except self._rospy.ROSException:
-                continue
-            if bool(last.is_initialized):
-                return last
-        raise StartupError(
-            "AG95 did not report initialized=true on %s; last=%s" % (topic, last)
+        return self._wait_for_matching_message(
+            topic,
+            message_type,
+            timeout,
+            lambda message: bool(message.is_initialized),
+            lambda last: "AG95 did not report initialized=true on %s; last=%s"
+            % (topic, last),
         )
 
     def _assert_fresh_advancing_joint_states(
@@ -390,22 +363,15 @@ class RosRuntime:
     def _wait_for_speed_range(
         self, topic: str, message_type: Any, requested: float, timeout: float
     ) -> Any:
-        deadline = time.monotonic() + timeout
-        last = None
-        while time.monotonic() < deadline:
-            try:
-                last = self._rospy.wait_for_message(
-                    topic,
-                    message_type,
-                    timeout=max(0.1, min(1.0, deadline - time.monotonic())),
-                )
-            except self._rospy.ROSException:
-                continue
-            if 0.0 < last.data <= requested + 0.02:
-                return last
-        raise StartupError(
-            "Speed scaling did not reach the requested low-speed range; last=%s"
-            % (None if last is None else last.data)
+        return self._wait_for_matching_message(
+            topic,
+            message_type,
+            timeout,
+            lambda message: 0.0 < message.data <= requested + 0.02,
+            lambda last: (
+                "Speed scaling did not reach the requested low-speed range; last=%s"
+                % (None if last is None else last.data)
+            ),
         )
 
     def wait_driver_ready(self, config: StartupConfig) -> None:
@@ -414,10 +380,12 @@ class RosRuntime:
         from sensor_msgs.msg import JointState
         from std_msgs.msg import Bool, Float64
 
-        first = self._wait_for_complete_joint_state(
-            "/joint_states", JointState, config.state_timeout
+        first = self._wait_for_named_joint_state(
+            "/joint_states", JointState, REQUIRED_JOINTS, config.state_timeout
         )
-        second = self._wait_for_complete_joint_state("/joint_states", JointState, 2.0)
+        second = self._wait_for_named_joint_state(
+            "/joint_states", JointState, REQUIRED_JOINTS, 2.0
+        )
         self._assert_fresh_advancing_joint_states(first, second, "/joint_states")
 
         self._wait_for_true(
@@ -490,7 +458,9 @@ class RosRuntime:
 
     def start_rviz(self, config: StartupConfig) -> None:
         rviz_config = os.path.join(
-            self.package_paths["moveit_config"], "launch", "moveit.rviz"
+            self.package_paths["tracer_bringup"],
+            "config",
+            "ur3_headless_moveit.rviz",
         )
         self._launch(
             "rviz",

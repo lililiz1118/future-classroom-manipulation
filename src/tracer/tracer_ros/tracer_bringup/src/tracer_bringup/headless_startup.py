@@ -150,7 +150,6 @@ class StartupCoordinator:
                 {"RUNNING"}, self.config.state_timeout, self.config.allow_reduced
             )
 
-        cleanup_required = True
         try:
             self.runtime.start_driver(self.config)
             self.runtime.wait_driver_ready(self.config)
@@ -162,5 +161,4 @@ class StartupCoordinator:
             self.runtime.start_rviz(self.config)
             self.runtime.supervise()
         finally:
-            if cleanup_required:
-                self.runtime.shutdown()
+            self.runtime.shutdown()
