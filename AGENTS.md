@@ -1,12 +1,13 @@
-# Robottracer workspace agreements
+# Future Classroom Manipulation workspace agreements
 
 ## Purpose
 
-This is the ROS Noetic workspace for the Future Classroom embodied teaching
-robot. The target system combines trusted teaching Q&A, guided navigation and
-fixed-point pick-and-place. The `codex/ur3-headless-moveit` branch implements
-the UR3 + AG95 execution foundation only; Tracer navigation is maintained by
-other team members and is not implemented by this branch.
+This repository owns the perception and manipulation subsystem of the Future
+Classroom robot: sensor input, object recognition and pose estimation, UR3
+MoveIt planning, AG95 execution, and operation feedback. The
+`codex/ur3-headless-moveit` branch currently implements the UR3 + AG95
+execution foundation. Navigation, teaching Q&A and global task orchestration
+belong to other repositories and must not be claimed as this repository's work.
 
 ## Canonical environment
 
@@ -14,6 +15,7 @@ other team members and is not implemented by this branch.
 - UR controller: `192.168.131.3`; robot-side ROS interface: `192.168.131.1`
 - Main workspace: `/home/jt001/tracer_ws`
 - Development worktree: `/home/jt001/tracer_ws/.worktrees/ur3-headless-moveit`
+- GitHub: `lililiz1118/future-classroom-manipulation`
 - OS/ROS: Ubuntu 20.04 / ROS Noetic
 
 ## Build and checks
@@ -46,11 +48,12 @@ automatically or clears safety faults.
 ## Source layout and status
 
 - `src/tracer/tracer_ros/tracer_bringup`: current UR3/AG95 startup feature
-- `src/tracer_nav`, `src/FAST_LIO_LOCALIZATION`: existing navigation/localization;
-  do not claim or modify them as part of this branch without explicit scope
+- `src/tracer_nav`, `src/FAST_LIO_LOCALIZATION`: integration copies maintained
+  elsewhere; do not modify them without explicit cross-repository scope
 - `src/urdf/tcurdf`: combined robot model
-- `src/chess_robot`: legacy experiment, not the project identity
+- `src/chess_robot`: legacy experiment; its unverified hand-eye calibration
+  (recorded error about 323-335 mm) must not be used for autonomous motion
 
-The current branch contains the guarded UR3 headless MoveIt path and AG95
-integration. Chess hand-eye calibration remains unverified (recorded error
-about 323-335 mm) and must not be used for autonomous motion.
+New perception, pose-estimation and grasp-orchestration work should use focused
+ROS packages with explicit message, service or action contracts for the team
+integration repository. Do not place new product logic in vendored packages.
