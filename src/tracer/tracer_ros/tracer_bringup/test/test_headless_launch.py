@@ -116,7 +116,7 @@ class HeadlessLaunchTest(unittest.TestCase):
 
 
 class HeadlessRvizConfigTest(unittest.TestCase):
-    def test_uses_model_root_without_unrelated_navigation_or_camera_displays(self):
+    def test_uses_model_root_with_d405_color_without_unrelated_navigation_displays(self):
         config_path = os.path.join(
             PACKAGE_ROOT, "config", "ur3_headless_moveit.rviz"
         )
@@ -137,11 +137,21 @@ class HeadlessRvizConfigTest(unittest.TestCase):
         self.assertIn("rviz/Grid", enabled_classes)
         self.assertIn("rviz/RobotModel", enabled_classes)
         self.assertIn("moveit_rviz_plugin/MotionPlanning", enabled_classes)
-        self.assertTrue(
-            enabled_classes.isdisjoint(
-                {"rviz/Image", "rviz/Map", "rviz/PointCloud2"}
-            )
+        self.assertIn("rviz/Image", enabled_classes)
+        self.assertTrue(enabled_classes.isdisjoint({"rviz/Map", "rviz/PointCloud2"}))
+        image_display = next(
+            display
+            for display in manager["Displays"]
+            if display["Class"] == "rviz/Image"
         )
+        self.assertEqual(image_display["Name"], "D405 Color")
+        self.assertEqual(image_display["Image Topic"], "/d405/color/image_raw")
+        self.assertEqual(
+            image_display["Image Topic"], image_display["Image Topic"].strip()
+        )
+        self.assertEqual(image_display["Transport Hint"], "raw")
+        self.assertEqual(image_display["Queue Size"], 2)
+        self.assertFalse(image_display["Unreliable"])
 
         motion_planning = next(
             display

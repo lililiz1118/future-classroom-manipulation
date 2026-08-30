@@ -85,6 +85,12 @@ class FakeRuntime:
     def wait_gripper_ready(self, config):
         self._event("gripper_ready")
 
+    def start_d405(self, config):
+        self._event("start_d405")
+
+    def wait_d405_ready(self, config):
+        self._event("d405_ready")
+
     def set_speed_slider(self, fraction):
         self._event("set_speed:%.2f" % fraction)
 
@@ -257,6 +263,8 @@ class StartupCoordinatorTest(unittest.TestCase):
                 "driver_ready",
                 "start_gripper",
                 "gripper_ready",
+                "start_d405",
+                "d405_ready",
                 "set_speed:0.05",
                 "start_move_group",
                 "move_group_ready",
@@ -265,6 +273,28 @@ class StartupCoordinatorTest(unittest.TestCase):
                 "shutdown",
             ],
         )
+
+    def test_disabled_d405_skips_camera_runtime_calls(self):
+        dashboard = FakeDashboard(RobotStatus("RUNNING", "NORMAL"))
+        runtime = FakeRuntime()
+        disabled_config = StartupConfig(
+            robot_ip="192.168.131.3",
+            reverse_ip="192.168.131.1",
+            calibration_path="/tmp/real.yaml",
+            expected_calibration_hash=EXPECTED_HASH,
+            speed_slider=0.05,
+            allow_reduced=False,
+            state_timeout=20.0,
+            enable_d405=False,
+        )
+        coordinator = StartupCoordinator(
+            dashboard, runtime, disabled_config, confirm=lambda _: True, output=lambda _: None
+        )
+
+        coordinator.run()
+
+        self.assertNotIn("start_d405", runtime.events)
+        self.assertNotIn("d405_ready", runtime.events)
 
     def test_runtime_failure_after_driver_start_triggers_cleanup(self):
         dashboard = FakeDashboard(RobotStatus("RUNNING", "NORMAL"))

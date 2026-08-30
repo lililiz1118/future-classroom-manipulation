@@ -157,6 +157,9 @@ class StartupCoordinator:
             self.runtime.wait_driver_ready(self.config)
             self.runtime.start_gripper(self.config)
             self.runtime.wait_gripper_ready(self.config)
+            if self.config.enable_d405:
+                self.runtime.start_d405(self.config)
+                self.runtime.wait_d405_ready(self.config)
             self.runtime.set_speed_slider(self.config.speed_slider)
             self.runtime.start_move_group(self.config)
             self.runtime.wait_move_group_ready(self.config)
