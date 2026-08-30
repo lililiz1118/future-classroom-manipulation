@@ -36,6 +36,29 @@ class HeadlessLaunchTest(unittest.TestCase):
         )
         self.assertIn("-0.2436409187296593", params["/robot_description"])
 
+    def test_headless_driver_aggregates_arm_and_gripper_joint_states(self):
+        params = self.dump("ur3_headless_driver.launch")
+        self.assertEqual(params["/joint_state_aggregator/rate"], 50)
+        self.assertEqual(
+            params["/joint_state_aggregator/source_list"],
+            ["/ur/joint_states", "/gripper/joint_states"],
+        )
+
+        result = subprocess.run(
+            [
+                "roslaunch",
+                "--nodes",
+                "tracer_bringup",
+                "ur3_headless_driver.launch",
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        nodes = set(result.stdout.splitlines())
+        self.assertIn("/joint_state_aggregator", nodes)
+        self.assertNotIn("/ur/joint_state_relay", nodes)
+
     def test_move_group_enables_scaled_controller_trajectory_execution(self):
         params = self.dump("ur3_moveit_execution.launch")
         self.assertTrue(params["/move_group/allow_trajectory_execution"])
@@ -94,6 +117,7 @@ class HeadlessLaunchTest(unittest.TestCase):
 
         self.assertIn("dh_gripper_driver", dependencies)
         self.assertIn("dh_gripper_msgs", dependencies)
+        self.assertIn("joint_state_publisher", dependencies)
         self.assertIn("realsense2_camera", dependencies)
 
     def test_d405_launch_contains_no_base_or_d455_nodes(self):

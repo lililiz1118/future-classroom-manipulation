@@ -357,6 +357,7 @@ class RuntimePreflightTest(unittest.TestCase):
             "/keyboard_jog",
             "/dh_gripper_driver",
             "/gripper_joint_state_relay",
+            "/joint_state_aggregator",
         ):
             with self.subTest(node=node), self.assertRaises(StartupError):
                 assert_no_conflicting_nodes(["/rosout", node])
@@ -750,6 +751,7 @@ class RosSnapshotTest(unittest.TestCase):
                     "tracer_bringup",
                     "ag95_gripper_state.launch",
                     "gripper_device:=/dev/test_ag95",
+                    "publish_joint_state_relay:=false",
                 ],
             ),
         )
@@ -844,6 +846,38 @@ class RosSnapshotTest(unittest.TestCase):
             "/joint_states", object, REQUIRED_JOINTS, 1.0
         )
         self.assertEqual(message.name, list(REQUIRED_JOINTS))
+
+    def test_driver_readiness_observes_raw_ur_joint_states(self):
+        class ReadinessObserved(Exception):
+            pass
+
+        class TopicRecordingRuntime(RosRuntime):
+            def __init__(self):
+                super().__init__(environment={})
+                self.topics = []
+
+            def _init_ros(self, timeout):
+                pass
+
+            def _wait_for_named_joint_state(
+                self, topic, message_type, required_joints, timeout
+            ):
+                self.topics.append(topic)
+                if len(self.topics) == 2:
+                    raise ReadinessObserved
+                return SimpleNamespace()
+
+        runtime = TopicRecordingRuntime()
+        with self.assertRaises(ReadinessObserved):
+            runtime.wait_driver_ready(
+                StartupConfig(
+                    robot_ip="192.168.131.3",
+                    reverse_ip="192.168.131.1",
+                    calibration_path="/tmp/real.yaml",
+                    expected_calibration_hash="calib_13945068365021364089",
+                )
+            )
+        self.assertEqual(runtime.topics, ["/ur/joint_states", "/ur/joint_states"])
 
     def test_transient_topic_timeout_does_not_abort_ready_wait(self):
         class FakeRospy:

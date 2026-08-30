@@ -28,5 +28,19 @@
     <arg name="headless_mode" value="$(arg headless_mode)" />
     <arg name="controller_config_file" value="$(arg controller_config_file)" />
     <arg name="kinematics_config" value="$(arg kinematics_config)" />
+    <arg name="publish_joint_state_relay" value="false" />
   </include>
+
+  <!-- Publish one coherent, fresh robot state stream. The UR driver and the
+       serial gripper keep their raw topics for diagnostics; cached gripper
+       positions prevent its slow hardware polling from starving MoveIt's
+       one-second execution validation window. -->
+  <node name="joint_state_aggregator"
+        pkg="joint_state_publisher"
+        type="joint_state_publisher"
+        output="screen">
+    <param name="rate" value="50" />
+    <param name="publish_default_positions" value="true" />
+    <rosparam param="source_list">[/ur/joint_states, /gripper/joint_states]</rosparam>
+  </node>
 </launch>

@@ -37,6 +37,7 @@ CONFLICTING_NODES = {
     "/keyboard_jog",
     "/dh_gripper_driver",
     "/gripper_joint_state_relay",
+    "/joint_state_aggregator",
 }
 D405_NODES = {
     "/d405/realsense2_camera",
@@ -300,6 +301,7 @@ class RosRuntime:
                 "tracer_bringup",
                 "ag95_gripper_state.launch",
                 "gripper_device:=%s" % config.gripper_device,
+                "publish_joint_state_relay:=false",
             ],
         )
 
@@ -478,12 +480,12 @@ class RosRuntime:
         from std_msgs.msg import Bool, Float64
 
         first = self._wait_for_named_joint_state(
-            "/joint_states", JointState, REQUIRED_JOINTS, config.state_timeout
+            "/ur/joint_states", JointState, REQUIRED_JOINTS, config.state_timeout
         )
         second = self._wait_for_named_joint_state(
-            "/joint_states", JointState, REQUIRED_JOINTS, 2.0
+            "/ur/joint_states", JointState, REQUIRED_JOINTS, 2.0
         )
-        self._assert_fresh_advancing_joint_states(first, second, "/joint_states")
+        self._assert_fresh_advancing_joint_states(first, second, "/ur/joint_states")
 
         self._wait_for_true(
             "/ur/ur_hardware_interface/robot_program_running",

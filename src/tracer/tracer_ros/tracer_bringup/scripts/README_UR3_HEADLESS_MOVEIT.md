@@ -78,6 +78,11 @@ rostopic hz /d405/depth/image_rect_raw
 rostopic info /d405/color/image_raw
 ```
 
+Headless 启动链由唯一的 `/joint_state_aggregator` 汇总 `/ur/joint_states` 和
+`/gripper/joint_states`，并以 50 Hz 发布完整 `/joint_states`。原始话题保留用于
+硬件诊断；不要再把任一原始话题直接 relay 到 `/joint_states`，否则会重新引入
+MoveIt 执行前的关节状态时序竞争。
+
 ## RViz 操作
 
 等待终端报告 Driver、夹爪、D405（默认模式）、速度缩放和 move_group Ready。RViz 会自动打开配置好的 `D405 Color` 显示，其精确图像话题为 `/d405/color/image_raw`，无需手动输入话题。
@@ -94,4 +99,4 @@ rostopic info /d405/color/image_raw
 
 在启动终端按 Ctrl+C，启动器会按 RViz、move_group、AG95 Driver、UR Driver 与其自有 D405 的逆序停止进程。关闭 RViz 也会结束本次控制链。默认不自动给 UR3 断电，且不会停止复用的外部 D405 或任何其他外部节点。
 
-如果启动器报告已有 `/servo_server`、`/keyboard_jog`、`/move_group`、`/ur/ur_hardware_interface`、`/dh_gripper_driver` 或 `/gripper_joint_state_relay`，先停止旧控制入口再重试；不要绕过并发检查。
+如果启动器报告已有 `/servo_server`、`/keyboard_jog`、`/move_group`、`/ur/ur_hardware_interface`、`/dh_gripper_driver`、`/gripper_joint_state_relay` 或 `/joint_state_aggregator`，先停止旧控制入口再重试；不要绕过并发检查。

@@ -17,6 +17,7 @@
   <!-- Wrist Tool Parameters -->
   <!-- <arg name="3f_gripper_enabled"         default="$(optenv TRACER_UR_3F_FINGER_GRIPPER_ENABLED 0)" /> -->
   <arg name="gripper_enabled"         default="$(optenv TRACER_UR_GRIPPER_ENABLED 0)" />
+  <arg name="publish_joint_state_relay" default="true" />
   <arg name="use_tool_communication"  default="false" doc="On e-Series robots tool communication can be enabled with this argument"/>
   <arg name="tool_voltage"            default="0"          doc="Tool voltage set at the beginning of the UR program. Only used, when `use_tool_communication` is set to true."/>
   <arg name="tool_parity"             default="0"           doc="Parity configuration used for tool communication. Only used, when `use_tool_communication` is set to true."/>
@@ -56,7 +57,9 @@
       <arg name="ur_hardware_interface_node_required" value="$(arg ur_hardware_interface_node_required)"/>
     </include>
     <!-- Joint State Relay -->
-    <node name="joint_state_relay" type="relay" pkg="topic_tools" args="joint_states /joint_states" />
+    <node if="$(arg publish_joint_state_relay)"
+          name="joint_state_relay" type="relay" pkg="topic_tools"
+          args="joint_states /joint_states" />
   </group>
   <!-- Optional: Gripper -->
   <!-- <group ns="gripper" if="$(arg gripper_enabled)">

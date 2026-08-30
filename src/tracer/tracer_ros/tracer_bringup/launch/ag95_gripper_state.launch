@@ -3,6 +3,7 @@
   <arg name="gripper_model" default="AG95_MB"/>
   <arg name="gripper_device" default="/dev/dh_gripper_usb"/>
   <arg name="baudrate" default="115200"/>
+  <arg name="publish_joint_state_relay" default="true"/>
 
   <!-- The driver initializes the physical gripper when it starts.  Do not
        respawn it: a crash must return control to the operator instead of
@@ -15,6 +16,7 @@
     <param name="baudrate" type="string" value="$(arg baudrate)"/>
   </node>
 
-  <node pkg="topic_tools" type="relay" name="gripper_joint_state_relay"
+  <node if="$(arg publish_joint_state_relay)"
+        pkg="topic_tools" type="relay" name="gripper_joint_state_relay"
         args="/gripper/joint_states /joint_states" required="true"/>
 </launch>

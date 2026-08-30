@@ -62,6 +62,7 @@
   <exec_depend>controller_manager_msgs</exec_depend>
   <exec_depend>dh_gripper_driver</exec_depend>
   <exec_depend>dh_gripper_msgs</exec_depend>
+  <exec_depend>joint_state_publisher</exec_depend>
   <exec_depend>moveit_config</exec_depend>
   <exec_depend>realsense2_camera</exec_depend>
   <exec_depend>robot_state_publisher</exec_depend>
