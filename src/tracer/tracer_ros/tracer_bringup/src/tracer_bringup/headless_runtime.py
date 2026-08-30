@@ -4,6 +4,7 @@
 import os
 import signal
 import socket
+import stat
 import subprocess
 import time
 from typing import Any, Dict, Iterable, List, Sequence
@@ -25,6 +26,7 @@ REQUIRED_JOINTS = (
     "ur_arm_wrist_2_joint",
     "ur_arm_wrist_3_joint",
 )
+GRIPPER_JOINT = "gripper_finger1_joint"
 TARGET_CONTROLLER = "ur_arm_scaled_pos_joint_traj_controller"
 SPEED_SCALING_TOPIC = "/ur/speed_scaling_factor"
 CONFLICTING_NODES = {
@@ -32,12 +34,28 @@ CONFLICTING_NODES = {
     "/move_group",
     "/servo_server",
     "/keyboard_jog",
+    "/dh_gripper_driver",
+    "/gripper_joint_state_relay",
 }
 REQUIRED_UR_DRIVER_EXECUTABLES = (
     "ur_robot_driver_node",
     "controller_stopper_node",
     "robot_state_helper",
 )
+
+
+def assert_gripper_device_ready(path: str) -> None:
+    if not os.path.exists(path):
+        raise StartupError("AG95 device does not exist: %s" % path)
+    resolved = os.path.realpath(path)
+    try:
+        mode = os.stat(resolved).st_mode
+    except OSError as exc:
+        raise StartupError("Cannot inspect AG95 device %s: %s" % (path, exc)) from exc
+    if not stat.S_ISCHR(mode):
+        raise StartupError("AG95 device is not a character device: %s" % path)
+    if not os.access(path, os.R_OK | os.W_OK):
+        raise StartupError("AG95 device is not readable and writable: %s" % path)
 
 
 def assert_ros_network_environment(environment: Dict[str, str], reverse_ip: str) -> None:
@@ -131,10 +149,16 @@ class RosRuntime:
     def preflight(self, config: StartupConfig) -> None:
         assert_ros_network_environment(self.environment, config.reverse_ip)
         validate_calibration(config.calibration_path, config.expected_calibration_hash)
+        assert_gripper_device_ready(config.gripper_device)
         self._run(["ping", "-c", "1", "-W", "2", config.robot_ip], timeout=4.0)
         route = self._run(["ip", "route", "get", config.robot_ip], timeout=3.0)
         assert_route_uses_reverse_ip(route.stdout, config.reverse_ip)
-        for package in ("tracer_bringup", "ur_robot_driver", "moveit_config"):
+        for package in (
+            "tracer_bringup",
+            "ur_robot_driver",
+            "moveit_config",
+            "dh_gripper_driver",
+        ):
             result = self._run(["rospack", "find", package], timeout=5.0)
             self.package_paths[package] = result.stdout.strip()
         version = self._run(["rosversion", "ur_robot_driver"], timeout=5.0).stdout.strip()
@@ -157,6 +181,23 @@ class RosRuntime:
                     "Required ROS executable is unavailable: ur_robot_driver/%s\n%s"
                     % (executable, (result.stderr or result.stdout).strip())
                 )
+        result = self._run(
+            [
+                "rosrun",
+                "--prefix",
+                "/usr/bin/true",
+                "dh_gripper_driver",
+                "dh_gripper_driver",
+            ],
+            timeout=5.0,
+            required=False,
+        )
+        if result.returncode != 0:
+            raise StartupError(
+                "Required ROS executable is unavailable: "
+                "dh_gripper_driver/dh_gripper_driver\n%s"
+                % (result.stderr or result.stdout).strip()
+            )
 
     def assert_no_conflicts(self) -> None:
         result = self._run(["rosnode", "list"], timeout=4.0, required=False)
@@ -190,6 +231,17 @@ class RosRuntime:
                 "kinematics_config:=%s" % config.calibration_path,
                 "start_robot_state_publisher:=%s"
                 % ("true" if self.start_robot_state_publisher else "false"),
+            ],
+        )
+
+    def start_gripper(self, config: StartupConfig) -> None:
+        self._launch(
+            "ag95_gripper",
+            [
+                "roslaunch",
+                "tracer_bringup",
+                "ag95_gripper_state.launch",
+                "gripper_device:=%s" % config.gripper_device,
             ],
         )
 
@@ -251,6 +303,60 @@ class RosRuntime:
                 return message
         raise StartupError("Timed out waiting for all six UR joints on %s" % topic)
 
+    def _wait_for_named_joint_state(
+        self,
+        topic: str,
+        message_type: Any,
+        required_joints: Iterable[str],
+        timeout: float,
+    ) -> Any:
+        required = set(required_joints)
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            try:
+                message = self._rospy.wait_for_message(
+                    topic,
+                    message_type,
+                    timeout=max(0.1, min(1.0, deadline - time.monotonic())),
+                )
+            except self._rospy.ROSException:
+                continue
+            if required.issubset(message.name):
+                return message
+        raise StartupError(
+            "Timed out waiting for joints %s on %s"
+            % (", ".join(sorted(required)), topic)
+        )
+
+    def _wait_for_initialized_gripper(
+        self, topic: str, message_type: Any, timeout: float
+    ) -> Any:
+        deadline = time.monotonic() + timeout
+        last = None
+        while time.monotonic() < deadline:
+            try:
+                last = self._rospy.wait_for_message(
+                    topic,
+                    message_type,
+                    timeout=max(0.1, min(1.0, deadline - time.monotonic())),
+                )
+            except self._rospy.ROSException:
+                continue
+            if bool(last.is_initialized):
+                return last
+        raise StartupError(
+            "AG95 did not report initialized=true on %s; last=%s" % (topic, last)
+        )
+
+    def _assert_fresh_advancing_joint_states(
+        self, first: Any, second: Any, topic: str
+    ) -> None:
+        if second.header.stamp <= first.header.stamp:
+            raise StartupError("%s timestamps are not advancing" % topic)
+        age = (self._rospy.Time.now() - second.header.stamp).to_sec()
+        if age < 0.0 or age > 1.0:
+            raise StartupError("%s is stale by %.3f seconds" % (topic, age))
+
     def _wait_for_speed_range(
         self, topic: str, message_type: Any, requested: float, timeout: float
     ) -> Any:
@@ -282,11 +388,7 @@ class RosRuntime:
             "/joint_states", JointState, config.state_timeout
         )
         second = self._wait_for_complete_joint_state("/joint_states", JointState, 2.0)
-        if second.header.stamp <= first.header.stamp:
-            raise StartupError("/joint_states timestamps are not advancing")
-        age = (self._rospy.Time.now() - second.header.stamp).to_sec()
-        if age < 0.0 or age > 1.0:
-            raise StartupError("/joint_states is stale by %.3f seconds" % age)
+        self._assert_fresh_advancing_joint_states(first, second, "/joint_states")
 
         self._wait_for_true(
             "/ur/ur_hardware_interface/robot_program_running",
@@ -310,6 +412,26 @@ class RosRuntime:
                 "Driver loaded calibration %s instead of %s"
                 % (actual_hash, config.expected_calibration_hash)
             )
+
+    def wait_gripper_ready(self, config: StartupConfig) -> None:
+        from dh_gripper_msgs.msg import GripperState
+        from sensor_msgs.msg import JointState
+
+        self._wait_for_initialized_gripper(
+            "/gripper/states", GripperState, config.state_timeout
+        )
+        first = self._wait_for_named_joint_state(
+            "/gripper/joint_states", JointState, {GRIPPER_JOINT}, config.state_timeout
+        )
+        second = self._wait_for_named_joint_state(
+            "/gripper/joint_states", JointState, {GRIPPER_JOINT}, 2.0
+        )
+        self._assert_fresh_advancing_joint_states(
+            first, second, "/gripper/joint_states"
+        )
+        self._wait_for_named_joint_state(
+            "/joint_states", JointState, {GRIPPER_JOINT}, 5.0
+        )
 
     def set_speed_slider(self, fraction: float) -> None:
         from std_msgs.msg import Float64

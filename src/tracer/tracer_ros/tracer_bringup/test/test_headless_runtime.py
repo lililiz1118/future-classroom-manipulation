@@ -12,6 +12,7 @@ import yaml
 PACKAGE_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, os.path.join(PACKAGE_ROOT, "src"))
 
+import tracer_bringup.headless_runtime as headless_runtime  # noqa: E402
 from tracer_bringup.headless_runtime import (  # noqa: E402
     REQUIRED_JOINTS,
     SPEED_SCALING_TOPIC,
@@ -27,7 +28,26 @@ from tracer_bringup.headless_startup import StartupError  # noqa: E402
 from tracer_bringup.headless_startup import StartupConfig  # noqa: E402
 
 
+GRIPPER_JOINT = "gripper_finger1_joint"
+
+
 class RuntimePreflightTest(unittest.TestCase):
+    def test_gripper_device_must_be_an_accessible_character_device(self):
+        self.assertTrue(
+            hasattr(headless_runtime, "assert_gripper_device_ready"),
+            "preflight must validate the physical AG95 device",
+        )
+        assert_gripper_device_ready = headless_runtime.assert_gripper_device_ready
+        assert_gripper_device_ready("/dev/null")
+        with self.assertRaisesRegex(StartupError, "does not exist"):
+            assert_gripper_device_ready("/dev/definitely_missing_ag95")
+
+        regular_file = tempfile.NamedTemporaryFile(delete=False)
+        regular_file.close()
+        self.addCleanup(lambda: os.unlink(regular_file.name))
+        with self.assertRaisesRegex(StartupError, "not a character device"):
+            assert_gripper_device_ready(regular_file.name)
+
     def test_speed_scaling_topic_matches_the_driver_published_interface(self):
         self.assertEqual(SPEED_SCALING_TOPIC, "/ur/speed_scaling_factor")
 
@@ -101,6 +121,75 @@ class RuntimePreflightTest(unittest.TestCase):
         with self.assertRaisesRegex(StartupError, "ur_robot_driver_node"):
             runtime.preflight(config)
 
+    def test_preflight_rejects_unbuilt_gripper_driver_executable(self):
+        kinematics = {
+            name: {
+                "x": 0.0,
+                "y": 0.0,
+                "z": 0.0,
+                "roll": 0.0,
+                "pitch": 0.0,
+                "yaw": 0.0,
+            }
+            for name in (
+                "shoulder",
+                "upper_arm",
+                "forearm",
+                "wrist_1",
+                "wrist_2",
+                "wrist_3",
+            )
+        }
+        kinematics["hash"] = "calib_13945068365021364089"
+        calibration = tempfile.NamedTemporaryFile(
+            mode="w", suffix=".yaml", delete=False
+        )
+        yaml.safe_dump({"kinematics": kinematics}, calibration)
+        calibration.close()
+        self.addCleanup(lambda: os.unlink(calibration.name))
+
+        class MissingGripperExecutableRuntime(RosRuntime):
+            def _run(self, command, timeout=10.0, required=True):
+                if command[0] == "ping":
+                    return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+                if command[:3] == ["ip", "route", "get"]:
+                    return subprocess.CompletedProcess(
+                        command,
+                        0,
+                        stdout="192.168.131.3 dev enp2s0 src 192.168.131.1\n",
+                        stderr="",
+                    )
+                if command[:2] == ["rospack", "find"]:
+                    return subprocess.CompletedProcess(
+                        command, 0, stdout="/tmp/%s\n" % command[-1], stderr=""
+                    )
+                if command[:2] == ["rosversion", "ur_robot_driver"]:
+                    return subprocess.CompletedProcess(
+                        command, 0, stdout="2.4.1\n", stderr=""
+                    )
+                if command[:3] == ["rosrun", "--prefix", "/usr/bin/true"]:
+                    return subprocess.CompletedProcess(
+                        command,
+                        1 if command[-2:] == ["dh_gripper_driver", "dh_gripper_driver"] else 0,
+                        stdout="",
+                        stderr="Cannot locate AG95 driver",
+                    )
+                raise AssertionError("Unexpected command: %r" % (command,))
+
+        runtime = MissingGripperExecutableRuntime(
+            environment={"ROS_IP": "192.168.131.1"}
+        )
+        config = StartupConfig(
+            robot_ip="192.168.131.3",
+            reverse_ip="192.168.131.1",
+            calibration_path=calibration.name,
+            expected_calibration_hash="calib_13945068365021364089",
+            gripper_device="/dev/null",
+        )
+
+        with self.assertRaisesRegex(StartupError, "dh_gripper_driver"):
+            runtime.preflight(config)
+
     def test_route_must_use_the_ur_private_interface(self):
         assert_route_uses_reverse_ip(
             "192.168.131.3 dev enp2s0 src 192.168.131.1 uid 1000", "192.168.131.1"
@@ -118,6 +207,8 @@ class RuntimePreflightTest(unittest.TestCase):
             "/move_group",
             "/servo_server",
             "/keyboard_jog",
+            "/dh_gripper_driver",
+            "/gripper_joint_state_relay",
         ):
             with self.subTest(node=node), self.assertRaises(StartupError):
                 assert_no_conflicting_nodes(["/rosout", node])
@@ -156,6 +247,146 @@ class RuntimePreflightTest(unittest.TestCase):
 
 
 class RosSnapshotTest(unittest.TestCase):
+    def test_gripper_readiness_requires_initialized_hardware(self):
+        runtime = RosRuntime(environment={})
+        self.assertTrue(
+            hasattr(runtime, "wait_gripper_ready"),
+            "the concrete ROS runtime must implement the coordinator contract",
+        )
+        runtime._rospy = SimpleNamespace()
+        startup_config = StartupConfig(
+            robot_ip="192.168.131.3",
+            reverse_ip="192.168.131.1",
+            calibration_path="/tmp/real.yaml",
+            expected_calibration_hash="calib_13945068365021364089",
+            state_timeout=0.0,
+        )
+
+        with self.assertRaisesRegex(StartupError, "initialized=true"):
+            runtime.wait_gripper_ready(startup_config)
+
+    def test_gripper_joint_samples_must_advance_and_be_fresh(self):
+        class Duration:
+            def __init__(self, seconds):
+                self.seconds = seconds
+
+            def to_sec(self):
+                return self.seconds
+
+        class Stamp:
+            def __init__(self, seconds):
+                self.seconds = seconds
+
+            def __le__(self, other):
+                return self.seconds <= other.seconds
+
+            def __sub__(self, other):
+                return Duration(self.seconds - other.seconds)
+
+        class Time:
+            @staticmethod
+            def now():
+                return Stamp(100.0)
+
+        runtime = RosRuntime(environment={})
+        self.assertTrue(
+            hasattr(runtime, "_assert_fresh_advancing_joint_states"),
+            "AG95 samples must be checked for motion-state freshness",
+        )
+        runtime._rospy = SimpleNamespace(Time=Time)
+        check = runtime._assert_fresh_advancing_joint_states
+        check(
+            SimpleNamespace(header=SimpleNamespace(stamp=Stamp(99.8))),
+            SimpleNamespace(header=SimpleNamespace(stamp=Stamp(99.9))),
+            "/gripper/joint_states",
+        )
+        with self.assertRaisesRegex(StartupError, "not advancing"):
+            check(
+                SimpleNamespace(header=SimpleNamespace(stamp=Stamp(99.9))),
+                SimpleNamespace(header=SimpleNamespace(stamp=Stamp(99.9))),
+                "/gripper/joint_states",
+            )
+        with self.assertRaisesRegex(StartupError, "stale"):
+            check(
+                SimpleNamespace(header=SimpleNamespace(stamp=Stamp(97.0))),
+                SimpleNamespace(header=SimpleNamespace(stamp=Stamp(98.0))),
+                "/gripper/joint_states",
+            )
+
+    def test_gripper_ready_wait_ignores_uninitialized_and_wrong_joint_messages(self):
+        class FakeRospy:
+            class ROSException(Exception):
+                pass
+
+            def __init__(self, messages):
+                self.messages = list(messages)
+
+            def wait_for_message(self, topic, message_type, timeout):
+                return self.messages.pop(0)
+
+        runtime = RosRuntime(environment={})
+        self.assertTrue(
+            hasattr(runtime, "_wait_for_initialized_gripper"),
+            "runtime must verify the AG95 initialization state",
+        )
+        runtime._rospy = FakeRospy(
+            [SimpleNamespace(is_initialized=False), SimpleNamespace(is_initialized=True)]
+        )
+        state = runtime._wait_for_initialized_gripper("/gripper/states", object, 1.0)
+        self.assertTrue(state.is_initialized)
+
+        self.assertTrue(
+            hasattr(runtime, "_wait_for_named_joint_state"),
+            "runtime must wait for the physical AG95 joint",
+        )
+        runtime._rospy = FakeRospy(
+            [
+                SimpleNamespace(name=["left_wheel_joint"]),
+                SimpleNamespace(name=[GRIPPER_JOINT]),
+            ]
+        )
+        joint_state = runtime._wait_for_named_joint_state(
+            "/gripper/joint_states", object, {GRIPPER_JOINT}, 1.0
+        )
+        self.assertEqual(joint_state.name, [GRIPPER_JOINT])
+
+    def test_start_gripper_passes_the_confirmed_physical_device(self):
+        class RecordingRuntime(RosRuntime):
+            def __init__(self):
+                super().__init__(environment={})
+                self.launch = None
+
+            def _launch(self, label, command):
+                self.launch = (label, list(command))
+
+        runtime = RecordingRuntime()
+        self.assertTrue(
+            hasattr(runtime, "start_gripper"),
+            "runtime must expose the ordered AG95 launch step",
+        )
+        startup_config = StartupConfig(
+            robot_ip="192.168.131.3",
+            reverse_ip="192.168.131.1",
+            calibration_path="/tmp/real.yaml",
+            expected_calibration_hash="calib_13945068365021364089",
+            gripper_device="/dev/test_ag95",
+        )
+
+        runtime.start_gripper(startup_config)
+
+        self.assertEqual(
+            runtime.launch,
+            (
+                "ag95_gripper",
+                [
+                    "roslaunch",
+                    "tracer_bringup",
+                    "ag95_gripper_state.launch",
+                    "gripper_device:=/dev/test_ag95",
+                ],
+            ),
+        )
+
     def test_joint_state_requires_all_six_named_joints(self):
         assert_joint_state_complete(SimpleNamespace(name=list(REQUIRED_JOINTS)))
         with self.assertRaises(StartupError):

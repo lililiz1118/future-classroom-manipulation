@@ -47,6 +47,50 @@ class HeadlessLaunchTest(unittest.TestCase):
         )
         self.assertEqual(controllers[0]["action_ns"], "follow_joint_trajectory")
 
+    def test_ag95_launch_uses_real_device_and_does_not_respawn(self):
+        result = subprocess.run(
+            [
+                "roslaunch",
+                "--dump-params",
+                "tracer_bringup",
+                "ag95_gripper_state.launch",
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
+        params = yaml.safe_load(result.stdout)
+        self.assertEqual(params["/dh_gripper_driver/gripper_id"], "1")
+        self.assertEqual(params["/dh_gripper_driver/gripper_model"], "AG95_MB")
+        self.assertEqual(
+            params["/dh_gripper_driver/connect_port"], "/dev/dh_gripper_usb"
+        )
+        self.assertEqual(params["/dh_gripper_driver/baudrate"], "115200")
+
+        import roslaunch
+
+        launch_path = roslaunch.rlutil.resolve_launch_arguments(
+            ["tracer_bringup", "ag95_gripper_state.launch"]
+        )[0]
+        launch_config = roslaunch.config.load_config_default([launch_path], None)
+        nodes = {node.name: node for node in launch_config.nodes}
+        self.assertTrue(nodes["dh_gripper_driver"].required)
+        self.assertFalse(nodes["dh_gripper_driver"].respawn)
+        self.assertIn("gripper_joint_state_relay", nodes)
+
+    def test_bringup_declares_the_ag95_runtime_dependencies(self):
+        result = subprocess.run(
+            ["rospack", "depends1", "tracer_bringup"],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        dependencies = set(result.stdout.splitlines())
+
+        self.assertIn("dh_gripper_driver", dependencies)
+        self.assertIn("dh_gripper_msgs", dependencies)
+
 
 if __name__ == "__main__":
     unittest.main()

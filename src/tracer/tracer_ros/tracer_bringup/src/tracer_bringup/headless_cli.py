@@ -33,6 +33,7 @@ def build_argument_parser() -> argparse.ArgumentParser:
     parser.add_argument("--reverse-ip", default="192.168.131.1")
     parser.add_argument("--dashboard-port", type=int, default=29999)
     parser.add_argument("--calibration", default=None)
+    parser.add_argument("--gripper-device", default="/dev/dh_gripper_usb")
     parser.add_argument("--speed-slider", type=_low_speed_fraction, default=0.05)
     parser.add_argument(
         "--allow-reduced",
@@ -55,7 +56,7 @@ def explicit_confirmation(
 ) -> bool:
     output("")
     output("================ UR3 实机安全确认 ================")
-    output("当前系统即将通过 Dashboard 上电并松闸。")
+    output("当前系统即将通过 Dashboard 上电并松闸，并初始化 DH AG95（夹爪可能运动）。")
     output(prompt)
     output("本程序不会自动解除保护停机、急停、Fault 或 Violation。")
     output("没有示教器时，SSH/Ctrl+C 不能替代独立硬件急停。")
@@ -78,6 +79,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             reverse_ip=arguments.reverse_ip,
             calibration_path=calibration_path,
             expected_calibration_hash=EXPECTED_CALIBRATION_HASH,
+            gripper_device=arguments.gripper_device,
             speed_slider=arguments.speed_slider,
             allow_reduced=arguments.allow_reduced,
             state_timeout=arguments.state_timeout,
@@ -103,5 +105,5 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         print("[FAILED] %s" % exc, file=sys.stderr)
         return 1
     except KeyboardInterrupt:
-        print("\n[STOPPED] 收到 Ctrl+C，正在关闭 RViz、MoveIt 和 UR Driver。")
+        print("\n[STOPPED] 收到 Ctrl+C，正在关闭 RViz、MoveIt、AG95 和 UR Driver。")
         return 130

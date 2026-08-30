@@ -20,6 +20,23 @@ class HeadlessCliTest(unittest.TestCase):
         self.assertFalse(arguments.allow_reduced)
         self.assertFalse(arguments.preflight_only)
 
+    def test_operator_can_select_the_physical_gripper_device(self):
+        parser = build_argument_parser()
+        action = next(
+            (
+                candidate
+                for candidate in parser._actions
+                if candidate.dest == "gripper_device"
+            ),
+            None,
+        )
+        self.assertIsNotNone(
+            action, "the CLI must accept an explicit physical AG95 device"
+        )
+        arguments = parser.parse_args(["--gripper-device", "/dev/test_ag95"])
+
+        self.assertEqual(arguments.gripper_device, "/dev/test_ag95")
+
     def test_speed_above_ten_percent_is_rejected(self):
         with self.assertRaises(SystemExit):
             build_argument_parser().parse_args(["--speed-slider", "0.11"])
@@ -36,6 +53,18 @@ class HeadlessCliTest(unittest.TestCase):
                         "warning", input_fn=lambda _, value=answer: value, output=lambda _: None
                     )
                 )
+
+    def test_confirmation_warns_that_ag95_initialization_can_move(self):
+        outputs = []
+
+        explicit_confirmation(
+            "warning", input_fn=lambda _: "cancel", output=outputs.append
+        )
+
+        self.assertTrue(
+            any("AG95" in line and "可能运动" in line for line in outputs),
+            "the single START gate must disclose physical gripper motion",
+        )
 
 
 if __name__ == "__main__":

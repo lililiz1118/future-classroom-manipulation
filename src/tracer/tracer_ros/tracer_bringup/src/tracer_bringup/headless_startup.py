@@ -24,6 +24,7 @@ class StartupConfig:
     reverse_ip: str
     calibration_path: str
     expected_calibration_hash: str
+    gripper_device: str = "/dev/dh_gripper_usb"
     speed_slider: float = 0.05
     allow_reduced: bool = False
     state_timeout: float = 30.0
@@ -111,12 +112,13 @@ class StartupCoordinator:
         if status.robot_mode not in allowed_initial_modes:
             raise StartupError("Robot mode is not startable: %s" % status.robot_mode)
         self.output(
-            "UR3 %s | robot=%s | safety=%s | calibration=%s | speed=%.0f%%"
+            "UR3 %s | robot=%s | safety=%s | calibration=%s | AG95=%s | speed=%.0f%%"
             % (
                 self.config.robot_ip,
                 status.robot_mode,
                 status.safety_mode,
                 self.config.expected_calibration_hash,
+                self.config.gripper_device,
                 self.config.speed_slider * 100.0,
             )
         )
@@ -124,7 +126,8 @@ class StartupCoordinator:
             self.output("Preflight passed; no hardware state was changed.")
             return
         if not self.confirm(
-            "确认工作区无人、独立硬件急停可用，并允许 UR3 上电和松闸"
+            "确认工作区和夹爪周围无人、独立硬件急停可用，并允许 UR3 "
+            "上电、松闸及 DH AG95 初始化"
         ):
             raise StartupAborted("Operator confirmation was not accepted")
 
@@ -151,6 +154,8 @@ class StartupCoordinator:
         try:
             self.runtime.start_driver(self.config)
             self.runtime.wait_driver_ready(self.config)
+            self.runtime.start_gripper(self.config)
+            self.runtime.wait_gripper_ready(self.config)
             self.runtime.set_speed_slider(self.config.speed_slider)
             self.runtime.start_move_group(self.config)
             self.runtime.wait_move_group_ready(self.config)

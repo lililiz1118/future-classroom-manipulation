@@ -79,6 +79,12 @@ class FakeRuntime:
     def wait_driver_ready(self, config):
         self._event("driver_ready")
 
+    def start_gripper(self, config):
+        self._event("start_gripper")
+
+    def wait_gripper_ready(self, config):
+        self._event("gripper_ready")
+
     def set_speed_slider(self, fraction):
         self._event("set_speed:%.2f" % fraction)
 
@@ -165,6 +171,15 @@ class ControllerExclusivityTest(unittest.TestCase):
 
 
 class StartupCoordinatorTest(unittest.TestCase):
+    def test_configuration_defaults_to_the_stable_ag95_device(self):
+        startup_config = config()
+
+        self.assertTrue(
+            hasattr(startup_config, "gripper_device"),
+            "StartupConfig must carry the physical AG95 device",
+        )
+        self.assertEqual(startup_config.gripper_device, "/dev/dh_gripper_usb")
+
     def test_confirmation_rejection_has_no_mutating_side_effect(self):
         dashboard = FakeDashboard(RobotStatus("POWER_OFF", "NORMAL"))
         runtime = FakeRuntime()
@@ -239,6 +254,8 @@ class StartupCoordinatorTest(unittest.TestCase):
                 "no_conflicts",
                 "start_driver",
                 "driver_ready",
+                "start_gripper",
+                "gripper_ready",
                 "set_speed:0.05",
                 "start_move_group",
                 "move_group_ready",
