@@ -34,6 +34,12 @@ def build_argument_parser() -> argparse.ArgumentParser:
     parser.add_argument("--dashboard-port", type=int, default=29999)
     parser.add_argument("--calibration", default=None)
     parser.add_argument("--gripper-device", default="/dev/dh_gripper_usb")
+    parser.add_argument(
+        "--no-d405",
+        action="store_false",
+        dest="enable_d405",
+        help="run UR3, AG95, MoveIt and RViz without requiring or starting D405",
+    )
     parser.add_argument("--speed-slider", type=_low_speed_fraction, default=0.05)
     parser.add_argument(
         "--allow-reduced",
@@ -80,6 +86,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             calibration_path=calibration_path,
             expected_calibration_hash=EXPECTED_CALIBRATION_HASH,
             gripper_device=arguments.gripper_device,
+            enable_d405=arguments.enable_d405,
             speed_slider=arguments.speed_slider,
             allow_reduced=arguments.allow_reduced,
             state_timeout=arguments.state_timeout,

@@ -25,6 +25,7 @@ class StartupConfig:
     calibration_path: str
     expected_calibration_hash: str
     gripper_device: str = "/dev/dh_gripper_usb"
+    enable_d405: bool = True
     speed_slider: float = 0.05
     allow_reduced: bool = False
     state_timeout: float = 30.0
@@ -112,13 +113,14 @@ class StartupCoordinator:
         if status.robot_mode not in allowed_initial_modes:
             raise StartupError("Robot mode is not startable: %s" % status.robot_mode)
         self.output(
-            "UR3 %s | robot=%s | safety=%s | calibration=%s | AG95=%s | speed=%.0f%%"
+            "UR3 %s | robot=%s | safety=%s | calibration=%s | AG95=%s | D405=%s | speed=%.0f%%"
             % (
                 self.config.robot_ip,
                 status.robot_mode,
                 status.safety_mode,
                 self.config.expected_calibration_hash,
                 self.config.gripper_device,
+                "required" if self.config.enable_d405 else "disabled",
                 self.config.speed_slider * 100.0,
             )
         )

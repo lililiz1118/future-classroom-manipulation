@@ -67,5 +67,10 @@ class HeadlessCliTest(unittest.TestCase):
         )
 
 
+    def test_d405_is_required_by_default_and_can_be_disabled(self):
+        parser = build_argument_parser()
+        self.assertTrue(parser.parse_args([]).enable_d405)
+        self.assertFalse(parser.parse_args(["--no-d405"]).enable_d405)
+
 if __name__ == "__main__":
     unittest.main()

@@ -179,6 +179,7 @@ class StartupCoordinatorTest(unittest.TestCase):
             "StartupConfig must carry the physical AG95 device",
         )
         self.assertEqual(startup_config.gripper_device, "/dev/dh_gripper_usb")
+        self.assertTrue(startup_config.enable_d405)
 
     def test_confirmation_rejection_has_no_mutating_side_effect(self):
         dashboard = FakeDashboard(RobotStatus("POWER_OFF", "NORMAL"))
