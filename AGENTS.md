@@ -2,51 +2,55 @@
 
 ## Purpose
 
-This is the ROS Noetic workspace for the Tracer mobile base, UR3 arm, Livox
-MID-360 localization/navigation, cameras, and the in-progress chess robot.
+This is the ROS Noetic workspace for the Future Classroom embodied teaching
+robot. The target system combines trusted teaching Q&A, guided navigation and
+fixed-point pick-and-place. The `codex/ur3-headless-moveit` branch implements
+the UR3 + AG95 execution foundation only; Tracer navigation is maintained by
+other team members and is not implemented by this branch.
 
 ## Canonical environment
 
-- Robot PC: `jt001@jt001-pc2`, Wi-Fi IP `172.20.10.7`
-- UR controller: `192.168.131.3`
-- Workspace: `/home/jt001/tracer_ws`
+- Robot PC: `jt001@jt001-pc2`
+- UR controller: `192.168.131.3`; robot-side ROS interface: `192.168.131.1`
+- Main workspace: `/home/jt001/tracer_ws`
+- Development worktree: `/home/jt001/tracer_ws/.worktrees/ur3-headless-moveit`
 - OS/ROS: Ubuntu 20.04 / ROS Noetic
 
 ## Build and checks
 
 ```bash
-cd /home/jt001/tracer_ws
+cd /home/jt001/tracer_ws/.worktrees/ur3-headless-moveit
 source /opt/ros/noetic/setup.bash
 catkin_make
 source devel/setup.bash
 ```
 
-Use `roslaunch --dump-params` for launch-file checks that must not start
-hardware. Never power on, release brakes, play a UR program, or send motion as
-part of an automated test.
+Use `roslaunch --dump-params` for launch checks that must not start hardware.
+Automated tests must never connect to the UR Dashboard, power on, release
+brakes, change hardware speed or send motion.
 
 ## Main entry points
 
-- Navigation: `roslaunch tracer_nav nav_all.launch`
-- Calibrated chess UR startup: `roslaunch tracer_bringup chess_ur_startup.launch`
-- Keyboard MoveIt Servo: branch `codex/ur-keyboard-teleop`, pending integration
+- UR3 + AG95 read-only preflight: `./ur3_moveit_headless.sh --preflight-only`
+- Guarded UR3 + AG95 startup: `./ur3_moveit_headless.sh`
+- Navigation interface: `roslaunch tracer_nav nav_all.launch` (team-owned,
+  outside this branch's implementation scope)
+- Detailed arm procedure:
+  `src/tracer/tracer_ros/tracer_bringup/scripts/README_UR3_HEADLESS_MOVEIT.md`
 
-`chess_ur_startup.launch` performs dashboard power/brake/program actions. Keep
-the physical emergency stop accessible and verify the work area first.
+The guarded startup may power on, release brakes and initialize the gripper
+only after exact `START` confirmation. Keep the physical emergency stop
+accessible and verify the work area first. It never executes a trajectory
+automatically or clears safety faults.
 
-## Source layout
+## Source layout and status
 
-- `src/tracer_nav`, `src/FAST_LIO_LOCALIZATION`: navigation/localization
-- `src/FAST_LIO`, `src/mppi_local_planner`, `src/SA-MPPI`: vendored dependencies
-- `src/tracer/tracer_ros`: Tracer base and bringup
+- `src/tracer/tracer_ros/tracer_bringup`: current UR3/AG95 startup feature
+- `src/tracer_nav`, `src/FAST_LIO_LOCALIZATION`: existing navigation/localization;
+  do not claim or modify them as part of this branch without explicit scope
 - `src/urdf/tcurdf`: combined robot model
-- `src/chess_robot`: experimental chess validation tools
+- `src/chess_robot`: legacy experiment, not the project identity
 
-## Current status
-
-- Navigation and selected dependency packages build successfully.
-- Calibrated UR launch parameter tests pass without starting hardware.
-- Chess hand-eye calibration is not verified; recorded errors are about
-  323-335 mm. Do not use it for autonomous motion.
-- A full unfiltered build still fails in the existing DH gripper package because
-  generated message headers are not ordered before driver compilation.
+The current branch contains the guarded UR3 headless MoveIt path and AG95
+integration. Chess hand-eye calibration remains unverified (recorded error
+about 323-335 mm) and must not be used for autonomous motion.
