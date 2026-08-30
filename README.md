@@ -44,15 +44,14 @@
 先在机器人电脑本地终端执行只读预检。它不会上电、松闸或发送轨迹：
 
 ```bash
-cd /home/jt001/tracer_ws
-./ur3_moveit_headless.sh --preflight-only
+cd /home/jt001/tracer_ws/.worktrees/ur3-headless-moveit
+TRACER_WS="$PWD" ./ur3_moveit_headless.sh --preflight-only
 ```
 
 现场确认工作区无人、独立硬件急停可用后，运行完整入口：
 
 ```bash
-cd /home/jt001/tracer_ws
-./ur3_moveit_headless.sh
+TRACER_WS="$PWD" ./ur3_moveit_headless.sh
 ```
 
 启动器会显示控制柜状态、标定哈希、夹爪设备和速度限制。只有精确输入大写 `START` 后，才会执行允许的 Dashboard 上电/松闸动作并初始化 AG95。默认速度滑块为 5%，命令行上限为 10%；启动器不会自动解除 Protective Stop、E-Stop、Fault、Violation 或 Recovery，也不会自动执行 MoveIt 轨迹。
