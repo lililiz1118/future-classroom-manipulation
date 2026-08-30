@@ -1,0 +1,21 @@
+<?xml version="1.0"?>
+<package format="2">
+  <name>anygrasp_ros</name>
+  <version>0.1.0</version>
+  <description>Perception-only AnyGrasp integration for the Intel RealSense D405.</description>
+
+  <maintainer email="lililiz1118@users.noreply.github.com">lililiz1118</maintainer>
+  <license>MIT</license>
+
+  <buildtool_depend>catkin</buildtool_depend>
+
+  <depend>geometry_msgs</depend>
+  <depend>rospy</depend>
+  <depend>sensor_msgs</depend>
+  <depend>std_msgs</depend>
+  <depend>visualization_msgs</depend>
+
+  <test_depend>rostest</test_depend>
+
+  <export/>
+</package>
