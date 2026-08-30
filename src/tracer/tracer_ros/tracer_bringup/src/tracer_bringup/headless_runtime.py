@@ -38,6 +38,14 @@ CONFLICTING_NODES = {
     "/dh_gripper_driver",
     "/gripper_joint_state_relay",
 }
+D405_NODES = {
+    "/d405/realsense2_camera",
+    "/d405/realsense2_camera_manager",
+}
+D455_NODES = {
+    "/d455/realsense2_camera",
+    "/d455/realsense2_camera_manager",
+}
 REQUIRED_ROS_EXECUTABLES = (
     ("ur_robot_driver", "ur_robot_driver_node"),
     ("ur_robot_driver", "controller_stopper_node"),
@@ -91,6 +99,29 @@ def assert_no_conflicting_nodes(nodes: Iterable[str]) -> None:
         raise StartupError("Existing UR control nodes must be stopped: %s" % ", ".join(conflicts))
 
 
+def classify_d405_nodes(nodes: Iterable[str], enable_d405: bool) -> str:
+    node_set = set(nodes)
+    d455 = sorted(node_set & D455_NODES)
+    if d455:
+        raise StartupError(
+            "D455 nodes must be stopped before headless manipulation: %s"
+            % ", ".join(d455)
+        )
+    if not enable_d405:
+        return "disabled"
+    present = node_set & D405_NODES
+    if not present:
+        return "absent"
+    if present == D405_NODES:
+        return "external"
+    missing = sorted(D405_NODES - present)
+    raise StartupError(
+        "Incomplete D405 node set; stop the old D405 launch before retrying; "
+        "present=%s missing=%s"
+        % (", ".join(sorted(present)), ", ".join(missing))
+    )
+
+
 def should_start_robot_state_publisher(nodes: Iterable[str]) -> bool:
     return "/robot_state_publisher" not in set(nodes)
 
@@ -120,6 +151,7 @@ class RosRuntime:
         self.processes = []
         self._rospy = None
         self.start_robot_state_publisher = True
+        self.d405_state = "absent"
         self.package_paths = {}
 
     def _run(self, command: Sequence[str], timeout: float = 10.0, required=True):
@@ -180,6 +212,7 @@ class RosRuntime:
             "ur_robot_driver",
             "moveit_config",
             "dh_gripper_driver",
+            "realsense2_camera",
         ):
             result = self._run(["rospack", "find", package], timeout=5.0)
             self.package_paths[package] = result.stdout.strip()
@@ -189,16 +222,18 @@ class RosRuntime:
         for package, executable in REQUIRED_ROS_EXECUTABLES:
             self._assert_ros_executable_available(package, executable)
 
-    def assert_no_conflicts(self) -> None:
+    def assert_no_conflicts(self, config: StartupConfig) -> None:
         result = self._run(["rosnode", "list"], timeout=4.0, required=False)
         if result.returncode == 0:
             nodes = [line.strip() for line in result.stdout.splitlines()]
             assert_no_conflicting_nodes(nodes)
             self.start_robot_state_publisher = should_start_robot_state_publisher(nodes)
+            self.d405_state = classify_d405_nodes(nodes, config.enable_d405)
             return
         diagnostics = str(result.stderr or result.stdout).lower()
         if not any(text in diagnostics for text in ("master", "connection refused", "unable to communicate")):
             raise StartupError("Cannot inspect existing ROS nodes: %s" % diagnostics.strip())
+        self.d405_state = "disabled" if not config.enable_d405 else "absent"
 
     def _launch(self, label: str, command: Sequence[str]) -> None:
         try:

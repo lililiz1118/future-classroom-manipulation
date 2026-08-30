@@ -83,7 +83,7 @@ class HeadlessLaunchTest(unittest.TestCase):
         self.assertFalse(nodes["dh_gripper_driver"].respawn)
         self.assertIn("gripper_joint_state_relay", nodes)
 
-    def test_bringup_declares_the_ag95_runtime_dependencies(self):
+    def test_bringup_declares_runtime_dependencies(self):
         result = subprocess.run(
             ["rospack", "depends1", "tracer_bringup"],
             check=False,
@@ -94,6 +94,7 @@ class HeadlessLaunchTest(unittest.TestCase):
 
         self.assertIn("dh_gripper_driver", dependencies)
         self.assertIn("dh_gripper_msgs", dependencies)
+        self.assertIn("realsense2_camera", dependencies)
 
 
 class HeadlessRvizConfigTest(unittest.TestCase):

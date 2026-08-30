@@ -63,6 +63,7 @@
   <exec_depend>dh_gripper_driver</exec_depend>
   <exec_depend>dh_gripper_msgs</exec_depend>
   <exec_depend>moveit_config</exec_depend>
+  <exec_depend>realsense2_camera</exec_depend>
   <exec_depend>robot_state_publisher</exec_depend>
   <exec_depend>sensor_msgs</exec_depend>
   <exec_depend>tcurdf</exec_depend>

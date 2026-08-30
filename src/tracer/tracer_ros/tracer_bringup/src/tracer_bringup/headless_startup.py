@@ -106,7 +106,7 @@ class StartupCoordinator:
 
     def run(self) -> None:
         self.runtime.preflight(self.config)
-        self.runtime.assert_no_conflicts()
+        self.runtime.assert_no_conflicts(self.config)
         status: RobotStatus = self.dashboard.preflight(self.config.allow_reduced)
         assert_safe_mode(status.safety_mode, self.config.allow_reduced)
         allowed_initial_modes = {"POWER_OFF", "BOOTING", "POWER_ON", "IDLE", "RUNNING"}

@@ -70,8 +70,8 @@ class FakeRuntime:
     def preflight(self, config):
         self._event("runtime_preflight")
 
-    def assert_no_conflicts(self):
-        self._event("no_conflicts")
+    def assert_no_conflicts(self, config):
+        self._event("no_conflicts:d405" if config.enable_d405 else "no_conflicts:no-d405")
 
     def start_driver(self, config):
         self._event("start_driver")
@@ -192,7 +192,7 @@ class StartupCoordinatorTest(unittest.TestCase):
             coordinator.run()
 
         self.assertEqual(dashboard.events, ["dashboard_preflight"])
-        self.assertEqual(runtime.events, ["runtime_preflight", "no_conflicts"])
+        self.assertEqual(runtime.events, ["runtime_preflight", "no_conflicts:d405"])
 
     def test_blocked_safety_state_stops_before_confirmation(self):
         dashboard = FakeDashboard(RobotStatus("POWER_OFF", "PROTECTIVE_STOP"))
@@ -252,7 +252,7 @@ class StartupCoordinatorTest(unittest.TestCase):
             runtime.events,
             [
                 "runtime_preflight",
-                "no_conflicts",
+                "no_conflicts:d405",
                 "start_driver",
                 "driver_ready",
                 "start_gripper",

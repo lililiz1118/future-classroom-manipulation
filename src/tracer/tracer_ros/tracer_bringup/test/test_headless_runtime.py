@@ -20,6 +20,7 @@ from tracer_bringup.headless_runtime import (  # noqa: E402
     assert_no_conflicting_nodes,
     assert_ros_network_environment,
     assert_route_uses_reverse_ip,
+    classify_d405_nodes,
     controller_snapshot,
     should_start_robot_state_publisher,
 )
@@ -28,6 +29,42 @@ from tracer_bringup.headless_startup import StartupConfig  # noqa: E402
 
 
 GRIPPER_JOINT = "gripper_finger1_joint"
+
+
+class CameraNodeClassificationTest(unittest.TestCase):
+    def test_disabled_complete_d405_is_ignored(self):
+        nodes = ["/d405/realsense2_camera", "/d405/realsense2_camera_manager"]
+        self.assertEqual(classify_d405_nodes(nodes, False), "disabled")
+
+    def test_absent_and_external_states(self):
+        self.assertEqual(classify_d405_nodes(["/rosout"], True), "absent")
+        self.assertEqual(
+            classify_d405_nodes(
+                ["/d405/realsense2_camera", "/d405/realsense2_camera_manager"],
+                True,
+            ),
+            "external",
+        )
+
+    def test_partial_d405_is_rejected(self):
+        for node in (
+            "/d405/realsense2_camera",
+            "/d405/realsense2_camera_manager",
+        ):
+            with self.subTest(node=node), self.assertRaisesRegex(
+                StartupError, "Incomplete D405"
+            ):
+                classify_d405_nodes([node], True)
+
+    def test_any_d455_is_rejected_even_when_d405_is_disabled(self):
+        for node in (
+            "/d455/realsense2_camera",
+            "/d455/realsense2_camera_manager",
+        ):
+            with self.subTest(node=node), self.assertRaisesRegex(
+                StartupError, "D455"
+            ):
+                classify_d405_nodes([node], False)
 
 
 class RuntimePreflightTest(unittest.TestCase):
