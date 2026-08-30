@@ -1,6 +1,6 @@
-# UR3 CB3 Headless MoveIt（含 D405）
+# UR3 CB3 Headless MoveIt（含 D405 与 AnyGrasp）
 
-此入口不使用示教器、External Control URCap、键盘或 MoveIt Servo。一次人工确认后，它通过 Dashboard 上电和松闸、初始化实体 DH AG95，并启动 UR ROS Driver 2.4.1、MoveIt 与 RViz。默认工作流还会独占或复用腕部 D405；不需要启动底盘（base launch）。
+此入口不使用示教器、External Control URCap、键盘或 MoveIt Servo。一次人工确认后，它通过 Dashboard 上电和松闸、初始化实体 DH AG95，并启动 UR ROS Driver 2.4.1、腕部 D405、AnyGrasp、MoveIt 与 RViz；不需要启动底盘（base launch）。
 
 ## 安全要求
 
@@ -17,7 +17,7 @@ D405 nodelet 必须和机械臂相关包一起构建在当前 worktree 中。不
 ```bash
 cd /home/jt001/tracer_ws/.worktrees/ur3-headless-moveit
 source /opt/ros/noetic/setup.bash
-catkin_make -DCATKIN_WHITELIST_PACKAGES='dh_gripper_driver;dh_gripper_msgs;moveit_config;realsense2_camera;tcurdf;tracer_bringup;ur_dashboard_msgs;ur_description;ur_msgs;ur_robot_driver'
+catkin_make -DCATKIN_WHITELIST_PACKAGES='anygrasp_ros;dh_gripper_driver;dh_gripper_msgs;moveit_config;realsense2_camera;tcurdf;tracer_bringup;ur_dashboard_msgs;ur_description;ur_msgs;ur_robot_driver'
 source devel/setup.bash
 test -f devel/lib/librealsense2_camera.so
 ```
@@ -33,7 +33,7 @@ cd /home/jt001/tracer_ws/.worktrees/ur3-headless-moveit
 TRACER_WS="$PWD" ./ur3_moveit_headless.sh
 ```
 
-启动器显示 `192.168.131.3` 的 robot/safety mode、标定哈希、AG95 设备、D405 状态和目标速度。只有精确输入大写 `START` 才会调用 Dashboard 和初始化夹爪。默认夹爪设备为 `/dev/dh_gripper_usb`，speed slider 为 5%。
+启动器只显示必要状态、人工确认、安全警告和错误，不展开各 ROS 子进程的初始化 INFO。只有精确输入大写 `START` 才会调用 Dashboard 和初始化夹爪。默认夹爪设备为 `/dev/dh_gripper_usb`，speed slider 为 5%，AnyGrasp 推理频率为 0.2 Hz。
 
 只读预检会进行只读网络、ROS 和 Dashboard 检查，并在 `START` 之前退出：不要求确认、不上电、不松闸、不启动相机，也不会改变硬件状态。
 
@@ -41,7 +41,7 @@ TRACER_WS="$PWD" ./ur3_moveit_headless.sh
 TRACER_WS="$PWD" ./ur3_moveit_headless.sh --preflight-only
 ```
 
-仅运行 UR3、AG95、MoveIt 和 RViz（不要求或启动 D405）时：
+仅运行 UR3、AG95、MoveIt 和 RViz（不要求或启动 D405 与 AnyGrasp）时：
 
 ```bash
 TRACER_WS="$PWD" ./ur3_moveit_headless.sh --no-d405
@@ -83,9 +83,16 @@ Headless 启动链由唯一的 `/joint_state_aggregator` 汇总 `/ur/joint_state
 硬件诊断；不要再把任一原始话题直接 relay 到 `/joint_states`，否则会重新引入
 MoveIt 执行前的关节状态时序竞争。
 
+## AnyGrasp 行为
+
+D405 就绪后，启动器会自动运行 `anygrasp_d405.launch`，等待模型加载并注册
+`/anygrasp/best_grasp`、`/anygrasp/grasp_markers` 和 `/anygrasp/input_cloud`，然后继续启动 MoveIt 与 RViz。就绪判断不要求已经检测到抓取，因为场景中可能尚无合适物体。
+
+AnyGrasp 启动超时、模型加载失败或运行中异常退出时，终端会给出明确错误，但 UR Driver、MoveIt 和 RViz 会继续运行。此时可以在 RViz 的 MotionPlanning 面板人工规定目标位姿，正常进行 `Plan` 与 `Execute`。错误发生后不会自动重启 AnyGrasp；需要恢复感知时，停止本次入口并重新启动。
+
 ## RViz 操作
 
-等待终端报告 Driver、夹爪、D405（默认模式）、速度缩放和 move_group Ready。RViz 会自动打开配置好的 `D405 Color` 显示，其精确图像话题为 `/d405/color/image_raw`，无需手动输入话题。
+等待 RViz 自动打开。其配置包含 D405 图像和 AnyGrasp 输出；终端保持简洁，只显示必要状态、警告与错误。
 
 1. 在 MotionPlanning 面板选择 `arm`。
 2. 拖动交互标记设置目标。
@@ -97,6 +104,6 @@ MoveIt 执行前的关节状态时序竞争。
 
 ## 停止
 
-在启动终端按 Ctrl+C，启动器会按 RViz、move_group、AG95 Driver、UR Driver 与其自有 D405 的逆序停止进程。关闭 RViz 也会结束本次控制链。默认不自动给 UR3 断电，且不会停止复用的外部 D405 或任何其他外部节点。
+在启动终端按 Ctrl+C，启动器会按启动逆序停止 RViz、move_group、AnyGrasp、自有 D405、AG95 Driver 和 UR Driver。关闭 RViz 也会结束本次控制链。默认不自动给 UR3 断电，且不会停止复用的外部 D405 或任何其他外部节点。AnyGrasp 自身异常退出不会结束控制链。
 
 如果启动器报告已有 `/servo_server`、`/keyboard_jog`、`/move_group`、`/ur/ur_hardware_interface`、`/dh_gripper_driver`、`/gripper_joint_state_relay` 或 `/joint_state_aggregator`，先停止旧控制入口再重试；不要绕过并发检查。

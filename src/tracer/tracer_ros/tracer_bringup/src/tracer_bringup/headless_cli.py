@@ -112,5 +112,5 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         print("[FAILED] %s" % exc, file=sys.stderr)
         return 1
     except KeyboardInterrupt:
-        print("\n[STOPPED] 收到 Ctrl+C，正在关闭 RViz、MoveIt、AG95 和 UR Driver。")
+        print("\n[STOPPED] 收到 Ctrl+C，正在关闭 RViz、MoveIt、AnyGrasp、AG95 和 UR Driver。")
         return 130

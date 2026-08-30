@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 from types import SimpleNamespace
+from contextlib import redirect_stderr
+import io
 import os
 import signal
 import subprocess
@@ -83,6 +85,88 @@ class D405LaunchOwnershipTest(unittest.TestCase):
             runtime.shutdown()
 
         killpg.assert_called_once_with(4321, signal.SIGINT)
+
+
+class AnyGraspLifecycleTest(unittest.TestCase):
+    @staticmethod
+    def config():
+        return StartupConfig(
+            robot_ip="192.168.131.3",
+            reverse_ip="192.168.131.1",
+            calibration_path="/tmp/real.yaml",
+            expected_calibration_hash="calib_13945068365021364089",
+        )
+
+    def test_start_uses_the_d405_anygrasp_launch(self):
+        class RecordingRuntime(RosRuntime):
+            def __init__(self):
+                super().__init__(environment={})
+                self.launch = None
+
+            def _launch(self, label, command):
+                self.launch = (label, list(command))
+
+        runtime = RecordingRuntime()
+
+        runtime.start_anygrasp(self.config())
+
+        self.assertEqual(
+            runtime.launch,
+            (
+                "anygrasp",
+                ["roslaunch", "anygrasp_ros", "anygrasp_d405.launch"],
+            ),
+        )
+
+    def test_readiness_requires_all_result_publishers(self):
+        published = [
+            ("/anygrasp/best_grasp", "geometry_msgs/PoseStamped"),
+            ("/anygrasp/grasp_markers", "visualization_msgs/MarkerArray"),
+            ("/anygrasp/input_cloud", "sensor_msgs/PointCloud2"),
+        ]
+        runtime = RosRuntime(environment={})
+        runtime._rospy = SimpleNamespace(get_published_topics=lambda: published)
+
+        runtime.wait_anygrasp_ready(self.config())
+
+    def test_stop_interrupts_only_the_owned_anygrasp_process(self):
+        anygrasp = SimpleNamespace(pid=4321, poll=lambda: None)
+        driver = SimpleNamespace(pid=9876, poll=lambda: None)
+        runtime = RosRuntime(environment={})
+        runtime.processes = [("ur_driver", driver), ("anygrasp", anygrasp)]
+
+        with mock.patch.object(os, "getpgid", return_value=4321), mock.patch.object(
+            os, "killpg"
+        ) as killpg:
+            runtime.stop_anygrasp()
+
+        killpg.assert_called_once_with(4321, signal.SIGINT)
+        self.assertEqual(runtime.processes, [("ur_driver", driver)])
+
+    def test_running_anygrasp_exit_reports_error_but_rviz_can_close_normally(self):
+        runtime = RosRuntime(environment={})
+        runtime.processes = [
+            ("anygrasp", SimpleNamespace(poll=lambda: 9)),
+            ("rviz", SimpleNamespace(poll=lambda: 0)),
+        ]
+        errors = io.StringIO()
+
+        with redirect_stderr(errors):
+            runtime.supervise()
+
+        message = errors.getvalue()
+        self.assertIn("AnyGrasp exited unexpectedly with code 9", message)
+        self.assertIn("MoveIt/RViz remain available", message)
+
+    def test_launch_hides_info_stdout_but_keeps_warning_stderr(self):
+        process = SimpleNamespace()
+        runtime = RosRuntime(environment={})
+
+        with mock.patch.object(subprocess, "Popen", return_value=process) as popen:
+            runtime._launch("component", ["example-command"])
+
+        self.assertEqual(popen.call_args.kwargs["stdout"], subprocess.DEVNULL)
+        self.assertNotIn("stderr", popen.call_args.kwargs)
 
 
 class CameraNodeClassificationTest(unittest.TestCase):
