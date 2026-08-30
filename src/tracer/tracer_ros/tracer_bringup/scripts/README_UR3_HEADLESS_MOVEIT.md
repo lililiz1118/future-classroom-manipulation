@@ -1,6 +1,6 @@
-# UR3 CB3 Headless MoveIt
+# UR3 CB3 Headless MoveIt（含 D405）
 
-该入口不使用示教器、External Control URCap、键盘或 MoveIt Servo。它在一次人工确认后通过 Dashboard 上电和松闸，同时初始化实体 DH AG95；随后由 UR ROS Driver 2.4.1 直接发送控制 URScript，并在手臂和夹爪状态都 Ready 后打开 RViz。
+此入口不使用示教器、External Control URCap、键盘或 MoveIt Servo。一次人工确认后，它通过 Dashboard 上电和松闸、初始化实体 DH AG95，并启动 UR ROS Driver 2.4.1、MoveIt 与 RViz。默认工作流还会独占或复用腕部 D405；不需要启动底盘（base launch）。
 
 ## 安全要求
 
@@ -8,47 +8,76 @@
 - 默认只接受 `NORMAL`。只有明确理解 UR 的 Reduced 安全配置时才使用 `--allow-reduced`。
 - 脚本绝不自动解除 Protective Stop、E-Stop、Fault、Violation 或 Recovery，也不调用 `restart safety`。
 - 启动器不会自动 Execute 任何轨迹；轨迹执行必须由操作者在 RViz 中单独确认。
-- 输入 `START` 后 AG95 可能运动。夹爪驱动不会自动 respawn；异常退出后必须重新运行启动器并再次确认。
+- 输入 `START` 后 Dashboard 会上电/松闸，且 AG95 可能运动。夹爪驱动不会自动 respawn；异常退出后必须重新运行启动器并再次确认。
 
-## 启动
+## 在此工作树启动
 
-在机器人电脑本地终端运行：
+在机器人电脑本地终端运行。默认命令无需 base launch，会要求或启动 D405：
 
 ```bash
-cd /home/jt001/tracer_ws
-./ur3_moveit_headless.sh
+cd /home/jt001/tracer_ws/.worktrees/ur3-headless-moveit
+TRACER_WS="$PWD" ./ur3_moveit_headless.sh
 ```
 
-启动器显示 `192.168.131.3` 的 robot/safety mode、标定哈希、AG95 设备和目标速度。只有精确输入大写 `START` 才会调用 Dashboard 和初始化夹爪。默认夹爪设备为 `/dev/dh_gripper_usb`，speed slider 为 5%。
+启动器显示 `192.168.131.3` 的 robot/safety mode、标定哈希、AG95 设备、D405 状态和目标速度。只有精确输入大写 `START` 才会调用 Dashboard 和初始化夹爪。默认夹爪设备为 `/dev/dh_gripper_usb`，speed slider 为 5%。
 
-只读预检（不要求确认，不上电、不松闸）：
+只读预检会进行只读网络、ROS 和 Dashboard 检查，并在 `START` 之前退出：不要求确认、不上电、不松闸、不启动相机，也不会改变硬件状态。
 
 ```bash
-./ur3_moveit_headless.sh --preflight-only
+TRACER_WS="$PWD" ./ur3_moveit_headless.sh --preflight-only
+```
+
+仅运行 UR3、AG95、MoveIt 和 RViz（不要求或启动 D405）时：
+
+```bash
+TRACER_WS="$PWD" ./ur3_moveit_headless.sh --no-d405
 ```
 
 显式允许 `REDUCED` 并设为 10%：
 
 ```bash
-./ur3_moveit_headless.sh --allow-reduced --speed-slider 0.10
+TRACER_WS="$PWD" ./ur3_moveit_headless.sh --allow-reduced --speed-slider 0.10
 ```
 
 速度参数只接受大于 0、且不超过 `0.10` 的值。
 
+## D405 所有权与冲突
+
+默认模式会检查 `/d405/realsense2_camera` 与 `/d405/realsense2_camera_manager`：两者都健康存在时，headless 会复用这个外部 D405；两者都不存在时，headless 会启动自己的 D405。已由 headless 启动的 D405 会随 headless 退出；外部 D405 则会保持运行。
+
+如需先单独启动外部 D405，在一个已 source ROS 环境的终端运行：
+
+```bash
+source /opt/ros/noetic/setup.bash
+source devel/setup.bash
+roslaunch tracer_bringup ur3_d405_camera.launch
+```
+
+然后在另一个终端执行上面的默认命令；它会复用该外部 D405。D455 节点始终是手动停止后才能继续的冲突；在默认 D405 模式中，仅出现部分 D405 节点也是手动停止旧相机启动后才能继续的冲突。启动器从不杀死外部节点。
+
+排查相机节点和流时运行：
+
+```bash
+rosnode list | grep -E '^/d(405|455)/'
+rostopic hz /d405/color/image_raw
+rostopic hz /d405/depth/image_rect_raw
+rostopic info /d405/color/image_raw
+```
+
 ## RViz 操作
 
-等待终端报告 Driver、控制器、速度缩放和 move_group Ready，RViz 打开后：
+等待终端报告 Driver、夹爪、D405（默认模式）、速度缩放和 move_group Ready。RViz 会自动打开配置好的 `D405 Color` 显示，其精确图像话题为 `/d405/color/image_raw`，无需手动输入话题。
 
 1. 在 MotionPlanning 面板选择 `arm`。
 2. 拖动交互标记设置目标。
 3. 点击 `Plan`。
 4. 目视检查整条动画轨迹及真实工作区。
-5. 确认无碰撞风险后点击 `Execute`。
+5. 确认无碰撞风险后才点击 `Execute`。
 
 首次实体测试保持 5%，只规划短距离、低风险轨迹。未加入 Planning Scene 的真实障碍物不会被 MoveIt 检测。
 
 ## 停止
 
-在启动终端按 Ctrl+C，启动器会按 RViz、move_group、AG95 Driver、UR Driver 的逆序停止进程。关闭 RViz 也会结束本次控制链。默认不自动给 UR3 断电。
+在启动终端按 Ctrl+C，启动器会按 RViz、move_group、AG95 Driver、UR Driver 与其自有 D405 的逆序停止进程。关闭 RViz 也会结束本次控制链。默认不自动给 UR3 断电，且不会停止复用的外部 D405 或任何其他外部节点。
 
 如果启动器报告已有 `/servo_server`、`/keyboard_jog`、`/move_group`、`/ur/ur_hardware_interface`、`/dh_gripper_driver` 或 `/gripper_joint_state_relay`，先停止旧控制入口再重试；不要绕过并发检查。
