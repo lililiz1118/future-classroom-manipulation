@@ -444,6 +444,13 @@ class D405ReadinessTest(unittest.TestCase):
         with self.assertRaisesRegex(StartupError, "/d405/color/image_raw"):
             runtime.wait_d405_ready(camera_config())
 
+    def test_missing_depth_reports_exact_topic(self):
+        runtime = camera_runtime(
+            color=[image(99.8), image(99.9)], depth=[], info=[], now=100.0
+        )
+        with self.assertRaisesRegex(StartupError, "/d405/depth/image_rect_raw"):
+            runtime.wait_d405_ready(camera_config())
+
     def test_non_advancing_stale_and_future_color_are_rejected(self):
         cases = (
             ([image(99.9), image(99.9)], "not advancing"),
@@ -455,6 +462,25 @@ class D405ReadinessTest(unittest.TestCase):
                 runtime = camera_runtime(color=color, depth=[], info=[], now=100.0)
                 with self.assertRaisesRegex(
                     StartupError, "/d405/color/image_raw.*%s" % reason
+                ):
+                    runtime.wait_d405_ready(camera_config())
+
+    def test_non_advancing_stale_and_future_depth_are_rejected(self):
+        cases = (
+            ([image(99.9), image(99.9)], "not advancing"),
+            ([image(97.0), image(98.0)], "stale"),
+            ([image(100.1), image(100.2)], "future"),
+        )
+        for depth, reason in cases:
+            with self.subTest(reason=reason):
+                runtime = camera_runtime(
+                    color=[image(99.8), image(99.9)],
+                    depth=depth,
+                    info=[],
+                    now=100.0,
+                )
+                with self.assertRaisesRegex(
+                    StartupError, "/d405/depth/image_rect_raw.*%s" % reason
                 ):
                     runtime.wait_d405_ready(camera_config())
 
@@ -482,6 +508,16 @@ class D405ReadinessTest(unittest.TestCase):
         with self.assertRaisesRegex(
             StartupError, "camera_info.*1280x720.*640x480"
         ):
+            runtime.wait_d405_ready(camera_config())
+
+    def test_missing_camera_info_reports_exact_topic(self):
+        runtime = camera_runtime(
+            color=[image(99.8), image(99.9)],
+            depth=[image(99.8), image(99.9)],
+            info=[],
+            now=100.0,
+        )
+        with self.assertRaisesRegex(StartupError, "/d405/color/camera_info"):
             runtime.wait_d405_ready(camera_config())
 
     def test_owned_camera_exit_replaces_generic_timeout(self):
