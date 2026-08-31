@@ -234,10 +234,31 @@ class LaunchOutputTest(unittest.TestCase):
         runtime = RosRuntime(environment={})
         runtime.processes = [("rviz", process)]
 
-        with mock.patch.object(os, "killpg") as killpg:
+        with mock.patch.object(
+            runtime,
+            "_wait_for_processes",
+            side_effect=([process], [process], []),
+        ), mock.patch.object(os, "killpg") as killpg:
             runtime.shutdown()
 
-        killpg.assert_called_once_with(4321, signal.SIGINT)
+        self.assertEqual(
+            killpg.call_args_list,
+            [
+                mock.call(4321, signal.SIGINT),
+                mock.call(4321, signal.SIGTERM),
+                mock.call(4321, signal.SIGKILL),
+            ],
+        )
+
+    def test_wait_keeps_exited_parent_while_its_process_group_exists(self):
+        process = mock.Mock(pid=4321)
+        process.poll.return_value = 0
+
+        with mock.patch.object(os, "killpg") as killpg:
+            running = RosRuntime._wait_for_processes([process], 0.0)
+
+        self.assertEqual(running, [process])
+        killpg.assert_called_once_with(4321, 0)
 
     def test_shutdown_waits_for_each_stage_before_starting_next(self):
         events = []
@@ -285,17 +306,17 @@ class LaunchOutputTest(unittest.TestCase):
         self.assertEqual(
             events,
             [
+                ("signal", "rviz", signal.SIGINT),
+                ("wait", "rviz"),
                 ("signal", "move_group", signal.SIGINT),
                 ("wait", "move_group"),
+                ("signal", "d405_camera", signal.SIGINT),
+                ("wait", "d405_camera"),
+                ("signal", "ag95_gripper", signal.SIGINT),
+                ("wait", "ag95_gripper"),
                 ("stop", "controller_spawner"),
                 ("signal", "ur_driver", signal.SIGINT),
                 ("wait", "ur_driver"),
-                ("signal", "ag95_gripper", signal.SIGINT),
-                ("wait", "ag95_gripper"),
-                ("signal", "d405_camera", signal.SIGINT),
-                ("wait", "d405_camera"),
-                ("signal", "rviz", signal.SIGINT),
-                ("wait", "rviz"),
             ],
         )
 
@@ -341,13 +362,12 @@ class D405LaunchOwnershipTest(unittest.TestCase):
 
     def test_owned_camera_is_registered_and_shutdown_with_sigint(self):
         process = mock.Mock(pid=4321)
-        process.poll.side_effect = (None, 0)
         runtime = RosRuntime(environment={})
         runtime.processes = [("d405_camera", process)]
 
-        with mock.patch.object(os, "getpgid", return_value=4321), mock.patch.object(
-            os, "killpg"
-        ) as killpg:
+        with mock.patch.object(
+            runtime, "_wait_for_processes", return_value=[]
+        ), mock.patch.object(os, "killpg") as killpg:
             runtime.shutdown()
 
         killpg.assert_called_once_with(4321, signal.SIGINT)

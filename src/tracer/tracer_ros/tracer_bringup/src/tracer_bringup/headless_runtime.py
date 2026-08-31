@@ -85,11 +85,11 @@ SHUTDOWN_SIGTERM_TIMEOUT = 2.0
 SHUTDOWN_SIGKILL_TIMEOUT = 1.0
 CONTROLLER_SPAWNER_NODE = "/ur/ros_control_controller_spawner"
 SHUTDOWN_PROCESS_ORDER = (
-    "move_group",
-    "ur_driver",
-    "ag95_gripper",
-    "d405_camera",
     "rviz",
+    "move_group",
+    "d405_camera",
+    "ag95_gripper",
+    "ur_driver",
 )
 
 
@@ -802,12 +802,6 @@ class RosRuntime:
             time.sleep(0.1)
 
     def _shutdown_process(self, process: Any) -> None:
-        if process.poll() is not None:
-            # roslaunch may exit before its children.  Each launch owns a session
-            # whose process-group ID is the launch PID, so still signal that group.
-            self._signal_process_group(process, signal.SIGINT)
-            return
-
         self._signal_process_group(process, signal.SIGINT)
         running = self._wait_for_processes([process], SHUTDOWN_SIGINT_TIMEOUT)
         for process in running:
@@ -850,11 +844,37 @@ class RosRuntime:
     @staticmethod
     def _wait_for_processes(processes: Sequence[Any], timeout: float) -> List[Any]:
         deadline = time.monotonic() + timeout
-        still_running = []
         for process in processes:
+            if process.poll() is not None:
+                continue
             remaining = max(0.0, deadline - time.monotonic())
             try:
                 process.wait(timeout=remaining)
             except subprocess.TimeoutExpired:
-                still_running.append(process)
+                pass
+
+        still_running = [
+            process
+            for process in processes
+            if RosRuntime._process_group_is_running(process)
+        ]
+        while still_running and time.monotonic() < deadline:
+            time.sleep(min(0.05, max(0.0, deadline - time.monotonic())))
+            for process in still_running:
+                process.poll()
+            still_running = [
+                process
+                for process in still_running
+                if RosRuntime._process_group_is_running(process)
+            ]
         return still_running
+
+    @staticmethod
+    def _process_group_is_running(process: Any) -> bool:
+        try:
+            os.killpg(process.pid, 0)
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
+        return True
