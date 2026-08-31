@@ -58,6 +58,7 @@ class HeadlessLaunchTest(unittest.TestCase):
         nodes = set(result.stdout.splitlines())
         self.assertIn("/joint_state_aggregator", nodes)
         self.assertNotIn("/ur/joint_state_relay", nodes)
+        self.assertNotIn("/ur/ros_control_stopped_spawner", nodes)
 
     def test_move_group_enables_scaled_controller_trajectory_execution(self):
         params = self.dump("ur3_moveit_execution.launch")

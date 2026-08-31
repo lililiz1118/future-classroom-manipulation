@@ -155,15 +155,22 @@ class StartupCoordinator:
         try:
             self.runtime.start_driver(self.config)
             self.runtime.wait_driver_ready(self.config)
+            self.output("🤖 UR3 驱动已就绪")
             self.runtime.start_gripper(self.config)
             self.runtime.wait_gripper_ready(self.config)
+            self.output("🦾 AG95 夹爪已就绪")
             if self.config.enable_d405:
                 self.runtime.start_d405(self.config)
                 self.runtime.wait_d405_ready(self.config)
+                self.output("📷 D405 相机已就绪")
             self.runtime.set_speed_slider(self.config.speed_slider)
+            self.output("🐢 速度已限制为 %.0f%%" % (self.config.speed_slider * 100.0))
             self.runtime.start_move_group(self.config)
             self.runtime.wait_move_group_ready(self.config)
+            self.output("🧭 MoveIt 已就绪")
             self.runtime.start_rviz(self.config)
+            self.output("🖥️ RViz 进程已启动，等待窗口显示")
+            self.output("✅ 核心服务已就绪，RViz 正在启动")
             self.runtime.supervise()
         finally:
             self.runtime.shutdown()

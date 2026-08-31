@@ -274,6 +274,31 @@ class StartupCoordinatorTest(unittest.TestCase):
             ],
         )
 
+    def test_successful_startup_reports_only_operator_facing_milestones(self):
+        outputs = []
+        coordinator = StartupCoordinator(
+            FakeDashboard(RobotStatus("RUNNING", "NORMAL")),
+            FakeRuntime(),
+            config(),
+            confirm=lambda _: True,
+            output=outputs.append,
+        )
+
+        coordinator.run()
+
+        self.assertEqual(
+            outputs[1:],
+            [
+                "🤖 UR3 驱动已就绪",
+                "🦾 AG95 夹爪已就绪",
+                "📷 D405 相机已就绪",
+                "🐢 速度已限制为 5%",
+                "🧭 MoveIt 已就绪",
+                "🖥️ RViz 进程已启动，等待窗口显示",
+                "✅ 核心服务已就绪，RViz 正在启动",
+            ],
+        )
+
     def test_disabled_d405_skips_camera_runtime_calls(self):
         dashboard = FakeDashboard(RobotStatus("RUNNING", "NORMAL"))
         runtime = FakeRuntime()

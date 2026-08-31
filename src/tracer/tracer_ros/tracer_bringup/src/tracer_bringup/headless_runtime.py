@@ -6,6 +6,7 @@ import signal
 import socket
 import stat
 import subprocess
+import sys
 import threading
 import time
 from typing import Any, Callable, Dict, Iterable, List, Sequence
@@ -53,6 +54,36 @@ REQUIRED_ROS_EXECUTABLES = (
     ("ur_robot_driver", "controller_stopper_node"),
     ("ur_robot_driver", "robot_state_helper"),
     ("dh_gripper_driver", "dh_gripper_driver"),
+)
+COMPONENT_NAMES = {
+    "ur_driver": "UR3 驱动",
+    "ag95_gripper": "AG95 夹爪",
+    "d405_camera": "D405 相机",
+    "move_group": "MoveIt",
+    "rviz": "RViz",
+}
+ERROR_MARKERS = (
+    "ERROR",
+    "FATAL",
+    "TRACEBACK",
+    "EXCEPTION",
+    "FAILED",
+    "FAILURE",
+    "HAS DIED",
+    "EXIT CODE",
+    "LOG FILE:",
+)
+WARNING_MARKERS = ("WARN", "WARNING")
+SHUTDOWN_SIGINT_TIMEOUT = 8.0
+SHUTDOWN_SIGTERM_TIMEOUT = 2.0
+SHUTDOWN_SIGKILL_TIMEOUT = 1.0
+CONTROLLER_SPAWNER_NODE = "/ur/ros_control_controller_spawner"
+SHUTDOWN_PROCESS_ORDER = (
+    "move_group",
+    "ur_driver",
+    "ag95_gripper",
+    "d405_camera",
+    "rviz",
 )
 
 
@@ -175,13 +206,55 @@ def controller_snapshot(response: Any) -> List[Dict[str, Any]]:
 
 
 class RosRuntime:
-    def __init__(self, environment=None):
+    def __init__(self, environment=None, diagnostic_output=None):
         self.environment = dict(environment or os.environ)
         self.processes = []
+        self.diagnostic_output = diagnostic_output or self._print_diagnostic
+        self._diagnostic_threads = []
         self._rospy = None
         self.start_robot_state_publisher = True
         self.d405_state = "absent"
         self.package_paths = {}
+
+    @staticmethod
+    def _print_diagnostic(message: str) -> None:
+        print(message, file=sys.stderr)
+
+    def _emit_diagnostic(self, message: str) -> None:
+        try:
+            self.diagnostic_output(message)
+        except Exception:
+            # Presentation must never stop draining a child's stderr pipe.
+            pass
+
+    def _relay_child_diagnostics(self, label: str, stream: Any) -> None:
+        component = COMPONENT_NAMES.get(label, label)
+        active_kind = None
+        try:
+            for raw_line in stream:
+                line = raw_line.strip()
+                if not line:
+                    active_kind = None
+                    continue
+                normalized = line.upper()
+                if any(marker in normalized for marker in ERROR_MARKERS):
+                    active_kind = ("❌", "报错详情")
+                    self._emit_diagnostic(
+                        "❌ [%s] 节点报错｜原文: %s" % (component, line)
+                    )
+                elif any(marker in normalized for marker in WARNING_MARKERS):
+                    active_kind = ("⚠️", "警告详情")
+                    self._emit_diagnostic(
+                        "⚠️ [%s] 节点警告｜原文: %s" % (component, line)
+                    )
+                elif active_kind is not None:
+                    icon, summary = active_kind
+                    self._emit_diagnostic(
+                        "%s [%s] %s｜原文: %s"
+                        % (icon, component, summary, line)
+                    )
+        finally:
+            stream.close()
 
     def _run(self, command: Sequence[str], timeout: float = 10.0, required=True):
         try:
@@ -272,11 +345,25 @@ class RosRuntime:
     def _launch(self, label: str, command: Sequence[str]) -> None:
         try:
             process = subprocess.Popen(
-                list(command), env=self.environment, start_new_session=True
+                list(command),
+                env=self.environment,
+                start_new_session=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+                text=True,
+                errors="replace",
+                bufsize=1,
             )
         except OSError as exc:
             raise StartupError("Cannot start %s: %s" % (label, exc)) from exc
         self.processes.append((label, process))
+        diagnostic_thread = threading.Thread(
+            target=self._relay_child_diagnostics,
+            args=(label, process.stderr),
+            daemon=True,
+        )
+        diagnostic_thread.start()
+        self._diagnostic_threads.append(diagnostic_thread)
 
     def start_driver(self, config: StartupConfig) -> None:
         self._launch(
@@ -643,21 +730,78 @@ class RosRuntime:
                 raise StartupError("%s exited unexpectedly with code %d" % (label, code))
             time.sleep(0.5)
 
+    def _shutdown_controller_spawner(self) -> None:
+        result = self._run(
+            ["rosnode", "kill", CONTROLLER_SPAWNER_NODE],
+            timeout=SHUTDOWN_SIGINT_TIMEOUT,
+            required=False,
+        )
+        if result.returncode != 0:
+            return
+
+        deadline = time.monotonic() + SHUTDOWN_SIGINT_TIMEOUT
+        while time.monotonic() < deadline:
+            remaining = max(0.1, deadline - time.monotonic())
+            nodes = self._run(
+                ["rosnode", "list"],
+                timeout=min(1.0, remaining),
+                required=False,
+            )
+            if nodes.returncode != 0:
+                return
+            if CONTROLLER_SPAWNER_NODE not in nodes.stdout.splitlines():
+                return
+            time.sleep(0.1)
+
+    def _shutdown_process(self, process: Any) -> None:
+        if process.poll() is not None:
+            return
+
+        self._signal_process_group(process, signal.SIGINT)
+        running = self._wait_for_processes([process], SHUTDOWN_SIGINT_TIMEOUT)
+        for process in running:
+            self._signal_process_group(process, signal.SIGTERM)
+        running = self._wait_for_processes(running, SHUTDOWN_SIGTERM_TIMEOUT)
+        for process in running:
+            self._signal_process_group(process, signal.SIGKILL)
+        self._wait_for_processes(running, SHUTDOWN_SIGKILL_TIMEOUT)
+
     def shutdown(self) -> None:
-        for _, process in reversed(self.processes):
-            if process.poll() is None:
-                try:
-                    os.killpg(os.getpgid(process.pid), signal.SIGINT)
-                except (OSError, ProcessLookupError):
-                    pass
-        deadline = time.monotonic() + 8.0
-        for _, process in reversed(self.processes):
+        ordered_labels = set(SHUTDOWN_PROCESS_ORDER)
+        driver_running = any(
+            label == "ur_driver" and process.poll() is None
+            for label, process in self.processes
+        )
+
+        for label in SHUTDOWN_PROCESS_ORDER:
+            if label == "ur_driver" and driver_running:
+                self._shutdown_controller_spawner()
+            for process_label, process in self.processes:
+                if process_label == label:
+                    self._shutdown_process(process)
+
+        for label, process in self.processes:
+            if label not in ordered_labels:
+                self._shutdown_process(process)
+
+        for diagnostic_thread in self._diagnostic_threads:
+            diagnostic_thread.join(timeout=1.0)
+
+    @staticmethod
+    def _signal_process_group(process: Any, requested_signal: int) -> None:
+        try:
+            os.killpg(os.getpgid(process.pid), requested_signal)
+        except (OSError, ProcessLookupError):
+            pass
+
+    @staticmethod
+    def _wait_for_processes(processes: Sequence[Any], timeout: float) -> List[Any]:
+        deadline = time.monotonic() + timeout
+        still_running = []
+        for process in processes:
             remaining = max(0.0, deadline - time.monotonic())
-            if process.poll() is None:
-                try:
-                    process.wait(timeout=remaining)
-                except subprocess.TimeoutExpired:
-                    try:
-                        os.killpg(os.getpgid(process.pid), signal.SIGTERM)
-                    except (OSError, ProcessLookupError):
-                        pass
+            try:
+                process.wait(timeout=remaining)
+            except subprocess.TimeoutExpired:
+                still_running.append(process)
+        return still_running

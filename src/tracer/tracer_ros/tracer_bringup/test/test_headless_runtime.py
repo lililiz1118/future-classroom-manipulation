@@ -5,6 +5,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
 from unittest import mock
 
@@ -31,6 +32,256 @@ from tracer_bringup.headless_startup import StartupConfig  # noqa: E402
 
 
 GRIPPER_JOINT = "gripper_finger1_joint"
+
+
+class LaunchOutputTest(unittest.TestCase):
+    def test_launch_reports_only_summarized_child_diagnostics(self):
+        diagnostics = []
+        runtime = RosRuntime(environment=os.environ)
+        runtime.diagnostic_output = diagnostics.append
+        runtime._launch(
+            "move_group",
+            [
+                sys.executable,
+                "-c",
+                (
+                    "import sys; "
+                    "print('ordinary initialization'); "
+                    "print('[WARN] planning scene is stale', file=sys.stderr); "
+                    "print('[ERROR] planner stopped', file=sys.stderr)"
+                ),
+            ],
+        )
+
+        runtime.processes[0][1].wait(timeout=5.0)
+        runtime.shutdown()
+
+        self.assertEqual(
+            diagnostics,
+            [
+                "⚠️ [MoveIt] 节点警告｜原文: [WARN] planning scene is stale",
+                "❌ [MoveIt] 节点报错｜原文: [ERROR] planner stopped",
+            ],
+        )
+
+    def test_launch_preserves_ros_process_death_diagnostics(self):
+        diagnostics = []
+        runtime = RosRuntime(environment=os.environ)
+        runtime.diagnostic_output = diagnostics.append
+        runtime._launch(
+            "ur_driver",
+            [
+                sys.executable,
+                "-c",
+                (
+                    "import sys; "
+                    "print('REQUIRED process [driver-1] has died!', file=sys.stderr); "
+                    "print('process has died [pid 42, exit code 1]', file=sys.stderr); "
+                    "print('log file: /tmp/driver.log', file=sys.stderr)"
+                ),
+            ],
+        )
+
+        runtime.processes[0][1].wait(timeout=5.0)
+        runtime.shutdown()
+
+        self.assertEqual(
+            diagnostics,
+            [
+                "❌ [UR3 驱动] 节点报错｜原文: REQUIRED process [driver-1] has died!",
+                "❌ [UR3 驱动] 节点报错｜原文: process has died [pid 42, exit code 1]",
+                "❌ [UR3 驱动] 节点报错｜原文: log file: /tmp/driver.log",
+            ],
+        )
+
+    def test_launch_preserves_multiline_error_context(self):
+        diagnostics = []
+        runtime = RosRuntime(environment=os.environ)
+        runtime.diagnostic_output = diagnostics.append
+        runtime._launch(
+            "move_group",
+            [
+                sys.executable,
+                "-c",
+                (
+                    "import sys; "
+                    "print('[ERROR] planner crashed', file=sys.stderr); "
+                    "print('  at planner.cpp:42', file=sys.stderr); "
+                    "print('  invalid group name: arm', file=sys.stderr); "
+                    "print('', file=sys.stderr); "
+                    "print('[WARN] using fallback planner', file=sys.stderr); "
+                    "print('  retrying with RRTConnect', file=sys.stderr)"
+                ),
+            ],
+        )
+
+        runtime.processes[0][1].wait(timeout=5.0)
+        runtime.shutdown()
+
+        self.assertEqual(
+            diagnostics,
+            [
+                "❌ [MoveIt] 节点报错｜原文: [ERROR] planner crashed",
+                "❌ [MoveIt] 报错详情｜原文: at planner.cpp:42",
+                "❌ [MoveIt] 报错详情｜原文: invalid group name: arm",
+                "⚠️ [MoveIt] 节点警告｜原文: [WARN] using fallback planner",
+                "⚠️ [MoveIt] 警告详情｜原文: retrying with RRTConnect",
+            ],
+        )
+
+    def test_output_failure_does_not_stop_stderr_drain(self):
+        runtime = RosRuntime(environment=os.environ)
+        output_attempts = []
+        received = []
+
+        def flaky_output(message):
+            output_attempts.append(message)
+            if len(output_attempts) == 1:
+                raise RuntimeError("terminal output unavailable")
+            received.append(message)
+
+        runtime.diagnostic_output = flaky_output
+        runtime._launch(
+            "move_group",
+            [
+                sys.executable,
+                "-c",
+                (
+                    "import sys; "
+                    "print('[ERROR] first failure', file=sys.stderr); "
+                    "print('[ERROR] second failure', file=sys.stderr)"
+                ),
+            ],
+        )
+        process = runtime.processes[0][1]
+        process.wait(timeout=5.0)
+        runtime.shutdown()
+
+        self.assertEqual(
+            received,
+            ["❌ [MoveIt] 节点报错｜原文: [ERROR] second failure"],
+        )
+
+    def test_invalid_utf8_does_not_stop_stderr_drain(self):
+        diagnostics = []
+        runtime = RosRuntime(environment=os.environ)
+        runtime.diagnostic_output = diagnostics.append
+        runtime._launch(
+            "rviz",
+            [
+                sys.executable,
+                "-c",
+                (
+                    "import os, sys; "
+                    "os.write(2, b'\\xff\\n'); "
+                    "print('[ERROR] renderer stopped', file=sys.stderr)"
+                ),
+            ],
+        )
+
+        runtime.processes[0][1].wait(timeout=5.0)
+        runtime.shutdown()
+
+        self.assertEqual(
+            diagnostics,
+            ["❌ [RViz] 节点报错｜原文: [ERROR] renderer stopped"],
+        )
+
+    def test_shutdown_reaps_child_that_ignores_soft_signals(self):
+        ready = threading.Event()
+        runtime = RosRuntime(environment=os.environ)
+        runtime.diagnostic_output = lambda _message: ready.set()
+        runtime._launch(
+            "move_group",
+            [
+                sys.executable,
+                "-c",
+                (
+                    "import signal, sys, time; "
+                    "signal.signal(signal.SIGINT, signal.SIG_IGN); "
+                    "signal.signal(signal.SIGTERM, signal.SIG_IGN); "
+                    "print('[WARN] ready', file=sys.stderr, flush=True); "
+                    "time.sleep(30)"
+                ),
+            ],
+        )
+        process = runtime.processes[0][1]
+        self.assertTrue(ready.wait(timeout=2.0))
+
+        with mock.patch.object(
+            headless_runtime, "SHUTDOWN_SIGINT_TIMEOUT", 0.2, create=True
+        ), mock.patch.object(
+            headless_runtime, "SHUTDOWN_SIGTERM_TIMEOUT", 0.2, create=True
+        ), mock.patch.object(
+            headless_runtime, "SHUTDOWN_SIGKILL_TIMEOUT", 1.0, create=True
+        ):
+            runtime.shutdown()
+
+        still_running = process.poll() is None
+        if still_running:
+            os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+            process.wait(timeout=2.0)
+        self.assertFalse(still_running, "shutdown must reap stubborn child processes")
+
+    def test_shutdown_waits_for_each_stage_before_starting_next(self):
+        events = []
+
+        class FakeProcess:
+            def __init__(self, label, pid):
+                self.label = label
+                self.pid = pid
+                self.running = True
+
+            def poll(self):
+                return None if self.running else 0
+
+            def wait(self, timeout):
+                events.append(("wait", self.label))
+                self.running = False
+                return 0
+
+        class RecordingRuntime(RosRuntime):
+            def _run(self, command, timeout=10.0, required=True):
+                if list(command[:2]) == ["rosnode", "kill"]:
+                    events.append(("stop", "controller_spawner"))
+                    return subprocess.CompletedProcess(command, 0, "", "")
+                if list(command[:2]) == ["rosnode", "list"]:
+                    return subprocess.CompletedProcess(command, 0, "/rosout\n", "")
+                raise AssertionError("unexpected command: %r" % (command,))
+
+        runtime = RecordingRuntime(environment={})
+        runtime.processes = [
+            ("ur_driver", FakeProcess("ur_driver", 1001)),
+            ("ag95_gripper", FakeProcess("ag95_gripper", 1002)),
+            ("d405_camera", FakeProcess("d405_camera", 1003)),
+            ("move_group", FakeProcess("move_group", 1004)),
+            ("rviz", FakeProcess("rviz", 1005)),
+        ]
+
+        def record_signal(process, requested_signal):
+            events.append(("signal", process.label, requested_signal))
+
+        with mock.patch.object(
+            runtime, "_signal_process_group", side_effect=record_signal
+        ):
+            runtime.shutdown()
+
+        self.assertEqual(
+            events,
+            [
+                ("signal", "move_group", signal.SIGINT),
+                ("wait", "move_group"),
+                ("stop", "controller_spawner"),
+                ("signal", "ur_driver", signal.SIGINT),
+                ("wait", "ur_driver"),
+                ("signal", "ag95_gripper", signal.SIGINT),
+                ("wait", "ag95_gripper"),
+                ("signal", "d405_camera", signal.SIGINT),
+                ("wait", "d405_camera"),
+                ("signal", "rviz", signal.SIGINT),
+                ("wait", "rviz"),
+            ],
+        )
 
 
 class D405LaunchOwnershipTest(unittest.TestCase):

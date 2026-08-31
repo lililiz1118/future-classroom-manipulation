@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
+from contextlib import redirect_stderr
+import io
 import os
 import sys
 import unittest
+from unittest import mock
 
 
 PACKAGE_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -10,7 +13,9 @@ sys.path.insert(0, os.path.join(PACKAGE_ROOT, "src"))
 from tracer_bringup.headless_cli import (  # noqa: E402
     build_argument_parser,
     explicit_confirmation,
+    main,
 )
+from tracer_bringup.headless_startup import StartupAborted, StartupError  # noqa: E402
 
 
 class HeadlessCliTest(unittest.TestCase):
@@ -64,6 +69,51 @@ class HeadlessCliTest(unittest.TestCase):
         self.assertTrue(
             any("AG95" in line and "可能运动" in line for line in outputs),
             "the single START gate must disclose physical gripper motion",
+        )
+
+    def test_startup_failure_has_chinese_summary_and_original_diagnostics(self):
+        errors = io.StringIO()
+
+        with mock.patch(
+            "tracer_bringup.headless_cli.StartupCoordinator.run",
+            side_effect=StartupError("UR Driver did not become ready"),
+        ), redirect_stderr(errors):
+            exit_code = main(["--calibration", "/tmp/test-calibration.yaml"])
+
+        self.assertEqual(exit_code, 1)
+        self.assertEqual(
+            errors.getvalue().strip(),
+            "❌ 启动失败｜原文: UR Driver did not become ready",
+        )
+
+    def test_operator_cancellation_is_reported_concisely(self):
+        errors = io.StringIO()
+
+        with mock.patch(
+            "tracer_bringup.headless_cli.StartupCoordinator.run",
+            side_effect=StartupAborted("Operator confirmation was not accepted"),
+        ), redirect_stderr(errors):
+            exit_code = main(["--calibration", "/tmp/test-calibration.yaml"])
+
+        self.assertEqual(exit_code, 2)
+        self.assertEqual(
+            errors.getvalue().strip(),
+            "⏹️ 已取消｜原文: Operator confirmation was not accepted",
+        )
+
+    def test_keyboard_interrupt_reports_safe_shutdown(self):
+        errors = io.StringIO()
+
+        with mock.patch(
+            "tracer_bringup.headless_cli.StartupCoordinator.run",
+            side_effect=KeyboardInterrupt,
+        ), redirect_stderr(errors):
+            exit_code = main(["--calibration", "/tmp/test-calibration.yaml"])
+
+        self.assertEqual(exit_code, 130)
+        self.assertEqual(
+            errors.getvalue().strip(),
+            "🛑 已收到 Ctrl+C，启动流程已尝试安全关闭 RViz、MoveIt、AG95 和 UR3 驱动。",
         )
 
 

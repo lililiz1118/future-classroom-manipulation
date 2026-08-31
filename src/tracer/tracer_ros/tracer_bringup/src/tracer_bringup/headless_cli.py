@@ -106,11 +106,15 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         coordinator.run()
         return 0
     except StartupAborted as exc:
-        print("[CANCELLED] %s" % exc, file=sys.stderr)
+        print("⏹️ 已取消｜原文: %s" % exc, file=sys.stderr)
         return 2
     except (DashboardError, StartupError, OSError, subprocess.SubprocessError) as exc:
-        print("[FAILED] %s" % exc, file=sys.stderr)
+        print("❌ 启动失败｜原文: %s" % exc, file=sys.stderr)
         return 1
     except KeyboardInterrupt:
-        print("\n[STOPPED] 收到 Ctrl+C，正在关闭 RViz、MoveIt、AG95 和 UR Driver。")
+        print(
+            "\n🛑 已收到 Ctrl+C，启动流程已尝试安全关闭 "
+            "RViz、MoveIt、AG95 和 UR3 驱动。",
+            file=sys.stderr,
+        )
         return 130

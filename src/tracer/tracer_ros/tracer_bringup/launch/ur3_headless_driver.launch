@@ -29,6 +29,7 @@
     <arg name="controller_config_file" value="$(arg controller_config_file)" />
     <arg name="kinematics_config" value="$(arg kinematics_config)" />
     <arg name="publish_joint_state_relay" value="false" />
+    <arg name="stopped_controllers" value="" />
   </include>
 
   <!-- Publish one coherent, fresh robot state stream. The UR driver and the
