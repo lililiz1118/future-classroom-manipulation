@@ -17,6 +17,18 @@ PACKAGE_SOURCE = os.path.join(PACKAGE_ROOT, "src")
 if PACKAGE_SOURCE not in sys.path:
     sys.path.insert(0, PACKAGE_SOURCE)
 
+from anygrasp_ros.runtime_resources import (
+    configure_torch,
+    format_process_report,
+    format_torch_report,
+    initialize_resource_policy,
+)
+
+
+RESOURCE_POLICY, PROCESS_RESOURCE_REPORT = initialize_resource_policy(
+    os.path.join(PACKAGE_ROOT, "config", "anygrasp_resources.yaml")
+)
+
 import numpy as np
 import rospy
 from geometry_msgs.msg import Point, PoseStamped
@@ -86,6 +98,10 @@ class AnyGraspAdapter:
         original_directory = os.getcwd()
         try:
             os.chdir(sdk_dir)
+            import torch
+
+            torch_report = configure_torch(torch, RESOURCE_POLICY)
+            rospy.loginfo(format_torch_report(torch_report))
             from gsnet import AnyGrasp
 
             sdk_config = SimpleNamespace(
@@ -123,6 +139,7 @@ class AnyGraspAdapter:
 class AnyGraspD405Node:
     def __init__(self):
         rospy.init_node("anygrasp_d405_node")
+        rospy.loginfo(format_process_report(PROCESS_RESOURCE_REPORT))
         expected_python = rospy.get_param("~python_executable", EXPECTED_PYTHON)
         if os.path.realpath(sys.executable) != os.path.realpath(expected_python):
             raise RuntimeError(

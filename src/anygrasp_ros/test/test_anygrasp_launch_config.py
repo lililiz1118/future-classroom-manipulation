@@ -8,6 +8,7 @@ import yaml
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 CONFIG_PATH = PACKAGE_ROOT / "config" / "anygrasp_d405.yaml"
 LAUNCH_PATH = PACKAGE_ROOT / "launch" / "anygrasp_d405.launch"
+RESOURCE_CONFIG_PATH = PACKAGE_ROOT / "config" / "anygrasp_resources.yaml"
 
 
 class AnyGraspConfigurationTest(unittest.TestCase):
@@ -55,6 +56,13 @@ class AnyGraspConfigurationTest(unittest.TestCase):
         rosparams = node.findall("rosparam")
         self.assertEqual(len(rosparams), 1)
         self.assertEqual(rosparams[0].attrib["command"], "load")
+        resource_argument = next(
+            item for item in root.findall("arg") if item.attrib["name"] == "resource_config_file"
+        )
+        self.assertIn("anygrasp_resources.yaml", resource_argument.attrib["default"])
+        resource_environment = node.find("env")
+        self.assertEqual(resource_environment.attrib["name"], "ANYGRASP_RESOURCE_CONFIG")
+        self.assertEqual(resource_environment.attrib["value"], "$(arg resource_config_file)")
 
 
 if __name__ == "__main__":

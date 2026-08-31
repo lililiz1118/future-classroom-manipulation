@@ -25,3 +25,7 @@ install(DIRECTORY config launch
 install(DIRECTORY src/anygrasp_ros
   DESTINATION ${CATKIN_PACKAGE_PYTHON_DESTINATION}
 )
+
+if(CATKIN_ENABLE_TESTING)
+  catkin_add_nosetests(test/test_runtime_resources.py)
+endif()

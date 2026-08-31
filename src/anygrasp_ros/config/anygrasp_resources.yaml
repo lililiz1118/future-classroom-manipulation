@@ -1,0 +1,13 @@
+# Conservative defaults for the current generic kernel. Override by passing a
+# different resource_config_file to anygrasp_d405.launch after measured testing.
+pytorch:
+  intra_op_threads: 2
+  inter_op_threads: 1
+
+environment:
+  omp_threads: 2
+  mkl_threads: 2
+  openblas_threads: 2
+
+process:
+  nice_increment: 10

@@ -11,6 +11,37 @@ NODE_PATH = PACKAGE_ROOT / "scripts" / "anygrasp_d405_node.py"
 
 
 class AnyGraspNodeContractTest(unittest.TestCase):
+    def test_resource_setup_precedes_numpy_and_torch_setup_precedes_gsnet(self):
+        tree = ast.parse(NODE_PATH.read_text(encoding="utf-8"))
+        numpy_import = next(
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Import)
+            and any(alias.name == "numpy" for alias in node.names)
+        )
+        process_setup = next(
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "initialize_resource_policy"
+        )
+        gsnet_import = next(
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.ImportFrom) and node.module == "gsnet"
+        )
+        torch_setup = next(
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "configure_torch"
+        )
+
+        self.assertLess(process_setup.lineno, numpy_import.lineno)
+        self.assertLess(torch_setup.lineno, gsnet_import.lineno)
+
     def test_node_declares_latest_message_buffer(self):
         self.assertTrue(NODE_PATH.is_file(), f"missing node: {NODE_PATH}")
         tree = ast.parse(NODE_PATH.read_text(encoding="utf-8"))
