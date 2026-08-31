@@ -23,7 +23,7 @@ belong to other repositories and must not be claimed as this repository's work.
 ```bash
 cd /home/jt001/tracer_ws/.worktrees/ur3-headless-moveit
 source /opt/ros/noetic/setup.bash
-catkin_make -DCATKIN_WHITELIST_PACKAGES='dh_gripper_driver;dh_gripper_msgs;moveit_config;realsense2_camera;tcurdf;tracer_bringup;ur_dashboard_msgs;ur_description;ur_msgs;ur_robot_driver'
+catkin_make -DCATKIN_WHITELIST_PACKAGES='anygrasp_ros;dh_gripper_driver;dh_gripper_msgs;moveit_config;realsense2_camera;tcurdf;tracer_bringup;ur_dashboard_msgs;ur_description;ur_msgs;ur_robot_driver'
 source devel/setup.bash
 test -f devel/lib/librealsense2_camera.so
 ```
@@ -36,6 +36,7 @@ brakes, change hardware speed or send motion.
 
 - UR3 + AG95 read-only preflight: `./ur3_moveit_headless.sh --preflight-only`
 - Guarded UR3 + AG95 startup: `./ur3_moveit_headless.sh`
+- Independent AnyGrasp perception: `roslaunch anygrasp_ros anygrasp_d405.launch`
 - Navigation interface: `roslaunch tracer_nav nav_all.launch` (team-owned,
   outside this branch's implementation scope)
 - Detailed arm procedure:
@@ -44,11 +45,14 @@ brakes, change hardware speed or send motion.
 The guarded startup may power on, release brakes and initialize the gripper
 only after exact `START` confirmation. Keep the physical emergency stop
 accessible and verify the work area first. It never executes a trajectory
-automatically or clears safety faults.
+automatically or clears safety faults. A post-READY control-chain fault is
+terminal: managed MoveIt execution is removed and a full restart is required.
 
 ## Source layout and status
 
 - `src/tracer/tracer_ros/tracer_bringup`: current UR3/AG95 startup feature
+- `src/anygrasp_ros`: independently launched AnyGrasp D405 perception and its
+  centralized CPU resource policy
 - `src/tracer_nav`, `src/FAST_LIO_LOCALIZATION`: integration copies maintained
   elsewhere; do not modify them without explicit cross-repository scope
 - `src/urdf/tcurdf`: combined robot model

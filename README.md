@@ -24,6 +24,8 @@
 - UR ROS Driver 2.4.1、真实标定模型、MoveIt `move_group` 与专用 RViz 配置；
 - DH Robotics AG95 实体夹爪的启动、串口分包处理、状态检查与关节状态接入；
 - Dashboard 状态检查、人工 `START` 确认、低速限制、控制器冲突检查和失败清理；
+- 统一 UR 运行策略、`robot_receive_timeout=0.10` 与锁存的 `STARTING/READY/FAULT` 控制链健康门禁；
+- 独立 AnyGrasp D405 感知节点及集中、可覆盖的 CPU 线程与 nice 资源策略；
 - 无硬件单元测试、launch 参数检查及相关 Catkin 构建配置。
 
 当前分支**没有实现或接管 Tracer 底盘导航**。`tracer_nav`、定位与移动导航由团队其他成员开发，本分支只保留现有机器人工作空间中的集成副本，并为后续“底盘移动到位后执行机械臂操作”提供机械臂侧基础。
@@ -54,7 +56,7 @@ TRACER_WS="$PWD" ./ur3_moveit_headless.sh --preflight-only
 TRACER_WS="$PWD" ./ur3_moveit_headless.sh
 ```
 
-启动器会显示控制柜状态、标定哈希、夹爪设备和速度限制。只有精确输入大写 `START` 后，才会执行允许的 Dashboard 上电/松闸动作并初始化 AG95。默认速度滑块为 5%，命令行上限为 10%；启动器不会自动解除 Protective Stop、E-Stop、Fault、Violation 或 Recovery，也不会自动执行 MoveIt 轨迹。
+启动器会显示控制柜状态、标定哈希、夹爪设备和速度限制。只有精确输入大写 `START` 后，才会执行允许的 Dashboard 上电/松闸动作并初始化 AG95。默认速度滑块为 5%，命令行上限为 10%；启动器不会自动解除 Protective Stop、E-Stop、Fault、Violation 或 Recovery，也不会自动执行 MoveIt 轨迹。只有 robot `RUNNING`、safety `NORMAL`、控制程序运行、轨迹控制器运行且原始 UR joint states 新鲜时才进入 READY；READY 后任一条件失效都会锁存 FAULT、停止受管 `move_group` 并要求完整重启。
 
 RViz 打开后，操作者仍需选择 `arm`、设置目标、点击 `Plan`、目视检查轨迹和真实工作区，最后再手动点击 `Execute`。未加入 Planning Scene 的真实障碍物不会被 MoveIt 检测。
 
@@ -74,6 +76,7 @@ source /opt/ros/noetic/setup.bash
 ## 目录说明
 
 - `src/tracer/tracer_ros/tracer_bringup/`：UR3/AG95 headless 启动、launch、配置与测试。
+- `src/anygrasp_ros/`：独立 D405 AnyGrasp 感知、集中资源策略与测试。
 - `src/tracer_nav/`：Tracer 导航相关既有集成副本；由其他子仓库和队友维护。
 - `src/FAST_LIO_LOCALIZATION/`：定位相关既有集成副本；不属于本仓库维护边界。
 - `src/ur_ros/`：Universal Robots ROS Driver 与相关包。
