@@ -6,7 +6,6 @@ import signal
 import socket
 import stat
 import subprocess
-import sys
 import threading
 import time
 from typing import Any, Callable, Dict, Iterable, List, Sequence
@@ -31,11 +30,6 @@ REQUIRED_JOINTS = (
 GRIPPER_JOINT = "gripper_finger1_joint"
 TARGET_CONTROLLER = "ur_arm_scaled_pos_joint_traj_controller"
 SPEED_SCALING_TOPIC = "/ur/speed_scaling_factor"
-ANYGRASP_TOPICS = {
-    "/anygrasp/best_grasp",
-    "/anygrasp/grasp_markers",
-    "/anygrasp/input_cloud",
-}
 CONFLICTING_NODES = {
     "/ur/ur_hardware_interface",
     "/move_group",
@@ -278,10 +272,7 @@ class RosRuntime:
     def _launch(self, label: str, command: Sequence[str]) -> None:
         try:
             process = subprocess.Popen(
-                list(command),
-                env=self.environment,
-                start_new_session=True,
-                stdout=subprocess.DEVNULL,
+                list(command), env=self.environment, start_new_session=True
             )
         except OSError as exc:
             raise StartupError("Cannot start %s: %s" % (label, exc)) from exc
@@ -323,27 +314,6 @@ class RosRuntime:
             "d405_camera",
             ["roslaunch", "tracer_bringup", "ur3_d405_camera.launch"],
         )
-
-    def start_anygrasp(self, config: StartupConfig) -> None:
-        if not config.enable_d405:
-            return
-        self._launch(
-            "anygrasp",
-            ["roslaunch", "anygrasp_ros", "anygrasp_d405.launch"],
-        )
-
-    def stop_anygrasp(self) -> None:
-        remaining = []
-        for label, process in self.processes:
-            if label != "anygrasp":
-                remaining.append((label, process))
-                continue
-            if process.poll() is None:
-                try:
-                    os.killpg(os.getpgid(process.pid), signal.SIGINT)
-                except (OSError, ProcessLookupError):
-                    pass
-        self.processes = remaining
 
     def _wait_for_master(self, timeout: float) -> None:
         uri = self.environment.get("ROS_MASTER_URI", "http://localhost:11311")
@@ -621,34 +591,6 @@ class RosRuntime:
                 )
             )
 
-    def wait_anygrasp_ready(self, config: StartupConfig) -> None:
-        if not config.enable_d405:
-            return
-
-        self._init_ros(config.state_timeout)
-        deadline = time.monotonic() + config.state_timeout
-        missing = set(ANYGRASP_TOPICS)
-        while time.monotonic() < deadline:
-            for label, process in self.processes:
-                if label != "anygrasp":
-                    continue
-                code = process.poll()
-                if code is not None:
-                    raise StartupError(
-                        "AnyGrasp exited during model initialization with code %d" % code
-                    )
-            published = {
-                topic for topic, _message_type in self._rospy.get_published_topics()
-            }
-            missing = ANYGRASP_TOPICS - published
-            if not missing:
-                return
-            time.sleep(0.25)
-        raise StartupError(
-            "timed out waiting for model initialization; missing publishers: %s"
-            % ", ".join(sorted(missing))
-        )
-
     def set_speed_slider(self, fraction: float) -> None:
         from std_msgs.msg import Float64
         from ur_msgs.srv import SetSpeedSliderFraction
@@ -692,18 +634,9 @@ class RosRuntime:
 
     def supervise(self) -> None:
         while True:
-            for label, process in list(self.processes):
+            for label, process in self.processes:
                 code = process.poll()
                 if code is None:
-                    continue
-                if label == "anygrasp":
-                    print(
-                        "[ERROR] AnyGrasp exited unexpectedly with code %d; "
-                        "MoveIt/RViz remain available for manual target poses."
-                        % code,
-                        file=sys.stderr,
-                    )
-                    self.processes.remove((label, process))
                     continue
                 if label == "rviz" and code == 0:
                     return

@@ -160,16 +160,6 @@ class StartupCoordinator:
             if self.config.enable_d405:
                 self.runtime.start_d405(self.config)
                 self.runtime.wait_d405_ready(self.config)
-                try:
-                    self.runtime.start_anygrasp(self.config)
-                    self.runtime.wait_anygrasp_ready(self.config)
-                except StartupError as exc:
-                    self.runtime.stop_anygrasp()
-                    self.output(
-                        "[WARNING] AnyGrasp unavailable: %s; "
-                        "MoveIt/RViz remain available for manual target poses."
-                        % exc
-                    )
             self.runtime.set_speed_slider(self.config.speed_slider)
             self.runtime.start_move_group(self.config)
             self.runtime.wait_move_group_ready(self.config)

@@ -117,13 +117,8 @@ class HeadlessLaunchTest(unittest.TestCase):
 
         self.assertIn("dh_gripper_driver", dependencies)
         self.assertIn("dh_gripper_msgs", dependencies)
-        self.assertIn("anygrasp_ros", dependencies)
-        self.assertIn("image_view", dependencies)
         self.assertIn("joint_state_publisher", dependencies)
         self.assertIn("realsense2_camera", dependencies)
-        self.assertIn("roslaunch", dependencies)
-        self.assertIn("rosnode", dependencies)
-        self.assertIn("rostopic", dependencies)
 
     def test_d405_launch_contains_no_base_or_d455_nodes(self):
         result = subprocess.run(

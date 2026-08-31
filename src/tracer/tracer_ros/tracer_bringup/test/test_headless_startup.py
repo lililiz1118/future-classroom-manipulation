@@ -91,15 +91,6 @@ class FakeRuntime:
     def wait_d405_ready(self, config):
         self._event("d405_ready")
 
-    def start_anygrasp(self, config):
-        self._event("start_anygrasp")
-
-    def wait_anygrasp_ready(self, config):
-        self._event("anygrasp_ready")
-
-    def stop_anygrasp(self):
-        self.events.append("stop_anygrasp")
-
     def set_speed_slider(self, fraction):
         self._event("set_speed:%.2f" % fraction)
 
@@ -274,8 +265,6 @@ class StartupCoordinatorTest(unittest.TestCase):
                 "gripper_ready",
                 "start_d405",
                 "d405_ready",
-                "start_anygrasp",
-                "anygrasp_ready",
                 "set_speed:0.05",
                 "start_move_group",
                 "move_group_ready",
@@ -306,30 +295,6 @@ class StartupCoordinatorTest(unittest.TestCase):
 
         self.assertNotIn("start_d405", runtime.events)
         self.assertNotIn("d405_ready", runtime.events)
-        self.assertNotIn("start_anygrasp", runtime.events)
-        self.assertNotIn("anygrasp_ready", runtime.events)
-
-    def test_anygrasp_startup_failure_is_reported_and_moveit_still_starts(self):
-        dashboard = FakeDashboard(RobotStatus("RUNNING", "NORMAL"))
-        runtime = FakeRuntime(fail_at="anygrasp_ready")
-        output = []
-        coordinator = StartupCoordinator(
-            dashboard, runtime, config(), confirm=lambda _: True, output=output.append
-        )
-
-        coordinator.run()
-
-        self.assertIn("stop_anygrasp", runtime.events)
-        self.assertIn("start_move_group", runtime.events)
-        self.assertIn("start_rviz", runtime.events)
-        self.assertIn("supervise", runtime.events)
-        self.assertTrue(
-            any(
-                "AnyGrasp" in message
-                and "MoveIt/RViz remain available" in message
-                for message in output
-            )
-        )
 
     def test_runtime_failure_after_driver_start_triggers_cleanup(self):
         dashboard = FakeDashboard(RobotStatus("RUNNING", "NORMAL"))

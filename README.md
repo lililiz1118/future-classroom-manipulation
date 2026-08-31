@@ -23,7 +23,6 @@
 - UR3 CB3 的单命令、分阶段、带安全门的 headless 启动；
 - UR ROS Driver 2.4.1、真实标定模型、MoveIt `move_group` 与专用 RViz 配置；
 - DH Robotics AG95 实体夹爪的启动、串口分包处理、状态检查与关节状态接入；
-- D405 点云接入及 AnyGrasp 低频抓取位姿推理与 RViz 可视化；
 - Dashboard 状态检查、人工 `START` 确认、低速限制、控制器冲突检查和失败清理；
 - 无硬件单元测试、launch 参数检查及相关 Catkin 构建配置。
 
@@ -40,7 +39,7 @@
 - MoveIt 规划组：`arm`
 - AG95 默认设备：`/dev/dh_gripper_usb`
 
-## UR3 + AG95 + D405 + AnyGrasp 启动
+## UR3 + AG95 启动
 
 先在机器人电脑本地终端执行只读预检。它不会上电、松闸或发送轨迹：
 
@@ -55,9 +54,7 @@ TRACER_WS="$PWD" ./ur3_moveit_headless.sh --preflight-only
 TRACER_WS="$PWD" ./ur3_moveit_headless.sh
 ```
 
-启动器会显示一行必要的控制柜状态与安全参数。只有精确输入大写 `START` 后，才会执行允许的 Dashboard 上电/松闸动作并初始化 AG95，然后依次启动 D405、AnyGrasp、MoveIt 与 RViz。默认速度滑块为 5%，AnyGrasp 推理频率为 0.2 Hz；启动器不会自动解除 Protective Stop、E-Stop、Fault、Violation 或 Recovery，也不会自动执行 MoveIt 轨迹。
-
-AnyGrasp 启动或运行异常只会在终端报告错误，不会关闭 UR Driver、MoveIt 或 RViz；操作者仍可在 RViz 中人工设置目标、规划并执行轨迹。`--no-d405` 会同时跳过 D405 和 AnyGrasp。
+启动器会显示控制柜状态、标定哈希、夹爪设备和速度限制。只有精确输入大写 `START` 后，才会执行允许的 Dashboard 上电/松闸动作并初始化 AG95。默认速度滑块为 5%，命令行上限为 10%；启动器不会自动解除 Protective Stop、E-Stop、Fault、Violation 或 Recovery，也不会自动执行 MoveIt 轨迹。
 
 RViz 打开后，操作者仍需选择 `arm`、设置目标、点击 `Plan`、目视检查轨迹和真实工作区，最后再手动点击 `Execute`。未加入 Planning Scene 的真实障碍物不会被 MoveIt 检测。
 
