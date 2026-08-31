@@ -18,12 +18,42 @@ from tracer_bringup.headless_cli import (  # noqa: E402
 from tracer_bringup.headless_startup import StartupAborted, StartupError  # noqa: E402
 
 
+RUNTIME_POLICY_PATH = os.path.join(PACKAGE_ROOT, "config", "ur3_runtime.yaml")
+
+
 class HeadlessCliTest(unittest.TestCase):
     def test_defaults_to_five_percent_and_normal_safety_only(self):
         arguments = build_argument_parser().parse_args([])
         self.assertEqual(arguments.speed_slider, 0.05)
-        self.assertFalse(arguments.allow_reduced)
+        self.assertFalse(hasattr(arguments, "allow_reduced"))
         self.assertFalse(arguments.preflight_only)
+
+        with self.assertRaises(SystemExit):
+            build_argument_parser().parse_args(["--allow-reduced"])
+
+    def test_main_loads_the_selected_runtime_policy(self):
+        observed = []
+
+        def capture(coordinator):
+            observed.append(coordinator.config.runtime_policy)
+
+        with mock.patch(
+            "tracer_bringup.headless_cli.StartupCoordinator.run",
+            autospec=True,
+            side_effect=capture,
+        ):
+            exit_code = main(
+                [
+                    "--calibration",
+                    "/tmp/test-calibration.yaml",
+                    "--runtime-config",
+                    RUNTIME_POLICY_PATH,
+                ]
+            )
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(observed[0].robot_receive_timeout, 0.10)
+        self.assertEqual(observed[0].joint_state_timeout, 0.50)
 
     def test_operator_can_select_the_physical_gripper_device(self):
         parser = build_argument_parser()
@@ -78,7 +108,14 @@ class HeadlessCliTest(unittest.TestCase):
             "tracer_bringup.headless_cli.StartupCoordinator.run",
             side_effect=StartupError("UR Driver did not become ready"),
         ), redirect_stderr(errors):
-            exit_code = main(["--calibration", "/tmp/test-calibration.yaml"])
+            exit_code = main(
+                [
+                    "--calibration",
+                    "/tmp/test-calibration.yaml",
+                    "--runtime-config",
+                    RUNTIME_POLICY_PATH,
+                ]
+            )
 
         self.assertEqual(exit_code, 1)
         self.assertEqual(
@@ -93,7 +130,14 @@ class HeadlessCliTest(unittest.TestCase):
             "tracer_bringup.headless_cli.StartupCoordinator.run",
             side_effect=StartupAborted("Operator confirmation was not accepted"),
         ), redirect_stderr(errors):
-            exit_code = main(["--calibration", "/tmp/test-calibration.yaml"])
+            exit_code = main(
+                [
+                    "--calibration",
+                    "/tmp/test-calibration.yaml",
+                    "--runtime-config",
+                    RUNTIME_POLICY_PATH,
+                ]
+            )
 
         self.assertEqual(exit_code, 2)
         self.assertEqual(
@@ -108,7 +152,14 @@ class HeadlessCliTest(unittest.TestCase):
             "tracer_bringup.headless_cli.StartupCoordinator.run",
             side_effect=KeyboardInterrupt,
         ), redirect_stderr(errors):
-            exit_code = main(["--calibration", "/tmp/test-calibration.yaml"])
+            exit_code = main(
+                [
+                    "--calibration",
+                    "/tmp/test-calibration.yaml",
+                    "--runtime-config",
+                    RUNTIME_POLICY_PATH,
+                ]
+            )
 
         self.assertEqual(exit_code, 130)
         self.assertEqual(

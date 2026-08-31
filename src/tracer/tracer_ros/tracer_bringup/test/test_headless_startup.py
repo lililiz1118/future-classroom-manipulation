@@ -19,6 +19,7 @@ from tracer_bringup.headless_startup import (  # noqa: E402
     assert_exclusive_controller,
     validate_calibration,
 )
+from tracer_bringup.runtime_config import load_ur_runtime_policy  # noqa: E402
 
 
 EXPECTED_HASH = "calib_13945068365021364089"
@@ -38,7 +39,7 @@ class FakeDashboard:
         self.current_status = status
         self.events = []
 
-    def preflight(self, allow_reduced):
+    def preflight(self):
         self.events.append("dashboard_preflight")
         return self.current_status
 
@@ -48,7 +49,7 @@ class FakeDashboard:
     def brake_release(self):
         self.events.append("brake_release")
 
-    def wait_robot_mode(self, modes, timeout, allow_reduced):
+    def wait_robot_mode(self, modes, timeout):
         self.events.append("wait:" + ",".join(sorted(modes)))
         if "RUNNING" in modes and len(modes) == 1:
             self.current_status = RobotStatus("RUNNING", "NORMAL")
@@ -116,8 +117,10 @@ def config():
         reverse_ip="192.168.131.1",
         calibration_path="/tmp/real.yaml",
         expected_calibration_hash=EXPECTED_HASH,
+        runtime_policy=load_ur_runtime_policy(
+            os.path.join(PACKAGE_ROOT, "config", "ur3_runtime.yaml")
+        ),
         speed_slider=0.05,
-        allow_reduced=False,
         state_timeout=20.0,
     )
 
@@ -307,8 +310,10 @@ class StartupCoordinatorTest(unittest.TestCase):
             reverse_ip="192.168.131.1",
             calibration_path="/tmp/real.yaml",
             expected_calibration_hash=EXPECTED_HASH,
+            runtime_policy=load_ur_runtime_policy(
+                os.path.join(PACKAGE_ROOT, "config", "ur3_runtime.yaml")
+            ),
             speed_slider=0.05,
-            allow_reduced=False,
             state_timeout=20.0,
             enable_d405=False,
         )

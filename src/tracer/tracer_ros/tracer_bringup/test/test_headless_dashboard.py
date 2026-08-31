@@ -54,10 +54,9 @@ class DashboardParsingTest(unittest.TestCase):
         self.assertEqual(parse_robot_mode("Robotmode: POWER_OFF"), "POWER_OFF")
         self.assertEqual(parse_safety_mode("Safetymode: NORMAL"), "NORMAL")
 
-    def test_reduced_requires_explicit_permission(self):
+    def test_reduced_is_always_blocked(self):
         with self.assertRaises(SafetyGateError):
-            assert_safe_mode("REDUCED", allow_reduced=False)
-        assert_safe_mode("REDUCED", allow_reduced=True)
+            assert_safe_mode("REDUCED")
 
     def test_every_dangerous_or_unknown_safety_mode_is_blocked(self):
         blocked = (
@@ -72,7 +71,7 @@ class DashboardParsingTest(unittest.TestCase):
         )
         for mode in blocked:
             with self.subTest(mode=mode), self.assertRaises(SafetyGateError):
-                assert_safe_mode(mode, allow_reduced=True)
+                assert_safe_mode(mode)
 
     def test_dashboard_client_performs_real_line_protocol_exchange(self):
         server = OneShotDashboardServer("Robotmode: IDLE")

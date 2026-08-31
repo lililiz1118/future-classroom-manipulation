@@ -1,0 +1,7 @@
+robot_receive_timeout: 0.10
+
+health:
+  evaluation_period: 0.10
+  controller_poll_period: 0.25
+  joint_state_timeout: 0.50
+  ready_joint_samples: 2

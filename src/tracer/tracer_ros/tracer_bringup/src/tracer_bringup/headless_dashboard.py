@@ -37,12 +37,9 @@ def parse_safety_mode(response: str) -> str:
     return _parse_mode(response, "Safetymode")
 
 
-def assert_safe_mode(mode: str, allow_reduced: bool = False) -> None:
+def assert_safe_mode(mode: str) -> None:
     normalized = mode.strip().upper()
-    allowed = {"NORMAL"}
-    if allow_reduced:
-        allowed.add("REDUCED")
-    if normalized not in allowed:
+    if normalized != "NORMAL":
         raise SafetyGateError(
             "Safety mode %s is blocked; no automatic recovery will be attempted"
             % normalized
@@ -88,14 +85,14 @@ class DashboardClient:
             raise DashboardError("Dashboard rejected %r: %s" % (command, response))
         return response
 
-    def status(self, allow_reduced: bool = False) -> RobotStatus:
+    def status(self) -> RobotStatus:
         robot_mode = parse_robot_mode(self.query("robotmode"))
         safety_mode = parse_safety_mode(self.query("safetymode"))
-        assert_safe_mode(safety_mode, allow_reduced)
+        assert_safe_mode(safety_mode)
         return RobotStatus(robot_mode, safety_mode)
 
-    def preflight(self, allow_reduced: bool = False) -> RobotStatus:
-        return self.status(allow_reduced)
+    def preflight(self) -> RobotStatus:
+        return self.status()
 
     def power_on(self) -> str:
         return self.command("power on")
@@ -107,14 +104,13 @@ class DashboardClient:
         self,
         modes: Iterable[str],
         timeout: float,
-        allow_reduced: bool = False,
         poll_interval: float = 0.5,
     ) -> RobotStatus:
         expected = {mode.upper() for mode in modes}
         deadline = time.monotonic() + timeout
         last_status = None
         while time.monotonic() < deadline:
-            last_status = self.status(allow_reduced)
+            last_status = self.status()
             if last_status.robot_mode in expected:
                 return last_status
             time.sleep(poll_interval)

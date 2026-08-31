@@ -8,6 +8,7 @@ from typing import Any, Callable, Dict, Iterable, List, Sequence
 import yaml
 
 from .headless_dashboard import RobotStatus, assert_safe_mode
+from .runtime_config import UrRuntimePolicy
 
 
 class StartupError(RuntimeError):
@@ -24,10 +25,10 @@ class StartupConfig:
     reverse_ip: str
     calibration_path: str
     expected_calibration_hash: str
+    runtime_policy: UrRuntimePolicy
     gripper_device: str = "/dev/dh_gripper_usb"
     enable_d405: bool = True
     speed_slider: float = 0.05
-    allow_reduced: bool = False
     state_timeout: float = 30.0
     preflight_only: bool = False
 
@@ -107,8 +108,8 @@ class StartupCoordinator:
     def run(self) -> None:
         self.runtime.preflight(self.config)
         self.runtime.assert_no_conflicts(self.config)
-        status: RobotStatus = self.dashboard.preflight(self.config.allow_reduced)
-        assert_safe_mode(status.safety_mode, self.config.allow_reduced)
+        status: RobotStatus = self.dashboard.preflight()
+        assert_safe_mode(status.safety_mode)
         allowed_initial_modes = {"POWER_OFF", "BOOTING", "POWER_ON", "IDLE", "RUNNING"}
         if status.robot_mode not in allowed_initial_modes:
             raise StartupError("Robot mode is not startable: %s" % status.robot_mode)
@@ -138,18 +139,16 @@ class StartupCoordinator:
             status = self.dashboard.wait_robot_mode(
                 {"POWER_ON", "IDLE", "RUNNING"},
                 self.config.state_timeout,
-                self.config.allow_reduced,
             )
         elif status.robot_mode == "BOOTING":
             status = self.dashboard.wait_robot_mode(
                 {"POWER_ON", "IDLE", "RUNNING"},
                 self.config.state_timeout,
-                self.config.allow_reduced,
             )
         if status.robot_mode != "RUNNING":
             self.dashboard.brake_release()
             status = self.dashboard.wait_robot_mode(
-                {"RUNNING"}, self.config.state_timeout, self.config.allow_reduced
+                {"RUNNING"}, self.config.state_timeout
             )
 
         try:

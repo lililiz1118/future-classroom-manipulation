@@ -10,6 +10,7 @@ from typing import Callable, Optional, Sequence
 from .headless_dashboard import DashboardClient, DashboardError
 from .headless_runtime import RosRuntime
 from .headless_startup import StartupAborted, StartupConfig, StartupCoordinator, StartupError
+from .runtime_config import RuntimePolicyError, load_ur_runtime_policy
 
 
 EXPECTED_CALIBRATION_HASH = "calib_13945068365021364089"
@@ -42,9 +43,9 @@ def build_argument_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--speed-slider", type=_low_speed_fraction, default=0.05)
     parser.add_argument(
-        "--allow-reduced",
-        action="store_true",
-        help="explicitly allow safety mode REDUCED",
+        "--runtime-config",
+        default=None,
+        help="validated UR3 runtime policy YAML",
     )
     parser.add_argument(
         "--preflight-only",
@@ -76,19 +77,29 @@ def _default_calibration_path() -> str:
     return os.path.join(package_path, "config", "ur3_calibration.yaml")
 
 
+def _default_runtime_config_path() -> str:
+    package_path = subprocess.check_output(
+        ["rospack", "find", "tracer_bringup"], text=True
+    ).strip()
+    return os.path.join(package_path, "config", "ur3_runtime.yaml")
+
+
 def main(argv: Optional[Sequence[str]] = None) -> int:
     arguments = build_argument_parser().parse_args(argv)
     try:
         calibration_path = arguments.calibration or _default_calibration_path()
+        runtime_policy = load_ur_runtime_policy(
+            arguments.runtime_config or _default_runtime_config_path()
+        )
         config = StartupConfig(
             robot_ip=arguments.robot_ip,
             reverse_ip=arguments.reverse_ip,
             calibration_path=calibration_path,
             expected_calibration_hash=EXPECTED_CALIBRATION_HASH,
+            runtime_policy=runtime_policy,
             gripper_device=arguments.gripper_device,
             enable_d405=arguments.enable_d405,
             speed_slider=arguments.speed_slider,
-            allow_reduced=arguments.allow_reduced,
             state_timeout=arguments.state_timeout,
             preflight_only=arguments.preflight_only,
         )
@@ -108,7 +119,13 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     except StartupAborted as exc:
         print("⏹️ 已取消｜原文: %s" % exc, file=sys.stderr)
         return 2
-    except (DashboardError, StartupError, OSError, subprocess.SubprocessError) as exc:
+    except (
+        DashboardError,
+        RuntimePolicyError,
+        StartupError,
+        OSError,
+        subprocess.SubprocessError,
+    ) as exc:
         print("❌ 启动失败｜原文: %s" % exc, file=sys.stderr)
         return 1
     except KeyboardInterrupt:
