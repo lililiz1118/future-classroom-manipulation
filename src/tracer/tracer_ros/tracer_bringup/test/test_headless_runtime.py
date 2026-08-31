@@ -228,6 +228,17 @@ class LaunchOutputTest(unittest.TestCase):
             process.wait(timeout=2.0)
         self.assertFalse(still_running, "shutdown must reap stubborn child processes")
 
+    def test_shutdown_signals_process_group_after_launch_parent_exits(self):
+        process = mock.Mock(pid=4321)
+        process.poll.return_value = 0
+        runtime = RosRuntime(environment={})
+        runtime.processes = [("rviz", process)]
+
+        with mock.patch.object(os, "killpg") as killpg:
+            runtime.shutdown()
+
+        killpg.assert_called_once_with(4321, signal.SIGINT)
+
     def test_shutdown_waits_for_each_stage_before_starting_next(self):
         events = []
 

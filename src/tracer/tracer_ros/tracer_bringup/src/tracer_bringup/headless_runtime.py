@@ -803,6 +803,9 @@ class RosRuntime:
 
     def _shutdown_process(self, process: Any) -> None:
         if process.poll() is not None:
+            # roslaunch may exit before its children.  Each launch owns a session
+            # whose process-group ID is the launch PID, so still signal that group.
+            self._signal_process_group(process, signal.SIGINT)
             return
 
         self._signal_process_group(process, signal.SIGINT)
@@ -840,7 +843,7 @@ class RosRuntime:
     @staticmethod
     def _signal_process_group(process: Any, requested_signal: int) -> None:
         try:
-            os.killpg(os.getpgid(process.pid), requested_signal)
+            os.killpg(process.pid, requested_signal)
         except (OSError, ProcessLookupError):
             pass
 
