@@ -69,6 +69,7 @@
   <exec_depend>sensor_msgs</exec_depend>
   <exec_depend>tcurdf</exec_depend>
   <exec_depend>topic_tools</exec_depend>
+  <exec_depend>ur_dashboard_msgs</exec_depend>
   <exec_depend>ur_msgs</exec_depend>
   <exec_depend>ur_robot_driver</exec_depend>
   <exec_depend>xacro</exec_depend>

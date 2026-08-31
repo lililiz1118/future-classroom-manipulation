@@ -29,6 +29,7 @@ from tracer_bringup.headless_runtime import (  # noqa: E402
 )
 from tracer_bringup.headless_startup import StartupError  # noqa: E402
 from tracer_bringup.headless_startup import StartupConfig  # noqa: E402
+from tracer_bringup.control_chain_monitor import ControlChainFault  # noqa: E402
 from tracer_bringup.runtime_config import load_ur_runtime_policy  # noqa: E402
 
 
@@ -364,6 +365,82 @@ class DriverLaunchPolicyTest(unittest.TestCase):
 
         self.assertEqual(runtime.launch[0], "ur_driver")
         self.assertIn("robot_receive_timeout:=0.10", runtime.launch[1])
+
+
+class ControlChainFaultGateTest(unittest.TestCase):
+    def test_move_group_cannot_start_after_latched_fault(self):
+        class FaultMonitor:
+            def raise_if_fault(self):
+                raise ControlChainFault("safety mode=REDUCED")
+
+        runtime = RosRuntime(environment={})
+        runtime.control_chain_monitor = FaultMonitor()
+        runtime._launch = lambda *_args: self.fail("MoveIt must not launch")
+
+        with self.assertRaisesRegex(StartupError, "safety mode=REDUCED"):
+            runtime.start_move_group(
+                StartupConfig(
+                    robot_ip="192.168.131.3",
+                    reverse_ip="192.168.131.1",
+                    calibration_path="/tmp/real.yaml",
+                    expected_calibration_hash="calib_13945068365021364089",
+                    runtime_policy=RUNTIME_POLICY,
+                )
+            )
+
+    def test_fault_stops_move_group_before_supervision_raises(self):
+        events = []
+
+        class Process:
+            def __init__(self, code=None):
+                self.code = code
+
+            def poll(self):
+                return self.code
+
+        class FaultMonitor:
+            def raise_if_fault(self):
+                raise ControlChainFault("robot_program_running=False")
+
+        class RecordingRuntime(RosRuntime):
+            def _shutdown_process(self, process):
+                events.append(process)
+                process.code = 0
+
+        move_group = Process()
+        runtime = RecordingRuntime(environment={})
+        runtime.control_chain_monitor = FaultMonitor()
+        runtime.processes = [("move_group", move_group), ("rviz", Process(0))]
+
+        with self.assertRaisesRegex(
+            StartupError,
+            "CONTROL CHAIN FAULT: robot_program_running=False.*Full restart required",
+        ):
+            runtime.supervise()
+
+        self.assertEqual(events, [move_group])
+        self.assertNotIn("move_group", [label for label, _ in runtime.processes])
+
+    def test_blocking_topic_wait_aborts_on_latched_fault(self):
+        class FakeRospy:
+            class ROSException(Exception):
+                pass
+
+            def wait_for_message(self, topic, message_type, timeout):
+                raise self.ROSException("no message")
+
+        class FaultMonitor:
+            def raise_if_fault(self):
+                raise ControlChainFault("joint_states stale")
+
+        runtime = RosRuntime(environment={})
+        runtime._rospy = FakeRospy()
+        runtime.control_chain_monitor = FaultMonitor()
+
+        with self.assertRaisesRegex(StartupError, "joint_states stale"):
+            runtime._wait_for_matching_message(
+                "/test", object, 1.0, lambda _message: True, lambda _last: "timeout"
+            )
 
 
 class CameraNodeClassificationTest(unittest.TestCase):
@@ -1137,38 +1214,45 @@ class RosSnapshotTest(unittest.TestCase):
         )
         self.assertEqual(message.name, list(REQUIRED_JOINTS))
 
-    def test_driver_readiness_observes_raw_ur_joint_states(self):
-        class ReadinessObserved(Exception):
-            pass
+    def test_control_chain_readiness_starts_the_monitor_and_checks_driver_params(self):
+        events = []
 
-        class TopicRecordingRuntime(RosRuntime):
-            def __init__(self):
-                super().__init__(environment={})
-                self.topics = []
+        class FakeMonitor:
+            def __init__(self, rospy, policy, **kwargs):
+                events.append(("constructed", policy, kwargs))
 
-            def _init_ros(self, timeout):
+            def start(self):
+                events.append("started")
+
+            def wait_until_ready(self, timeout):
+                events.append(("ready", timeout))
+
+            def raise_if_fault(self):
                 pass
 
-            def _wait_for_named_joint_state(
-                self, topic, message_type, required_joints, timeout
-            ):
-                self.topics.append(topic)
-                if len(self.topics) == 2:
-                    raise ReadinessObserved
-                return SimpleNamespace()
+        class FakeRospy:
+            def wait_for_message(self, topic, message_type, timeout):
+                return SimpleNamespace(data=0.5)
 
-        runtime = TopicRecordingRuntime()
-        with self.assertRaises(ReadinessObserved):
-            runtime.wait_driver_ready(
-                StartupConfig(
-                    robot_ip="192.168.131.3",
-                    reverse_ip="192.168.131.1",
-                    calibration_path="/tmp/real.yaml",
-                    expected_calibration_hash="calib_13945068365021364089",
-                    runtime_policy=RUNTIME_POLICY,
-                )
-            )
-        self.assertEqual(runtime.topics, ["/ur/joint_states", "/ur/joint_states"])
+            def get_param(self, name, default):
+                return "calib_13945068365021364089"
+
+        runtime = RosRuntime(
+            environment={}, control_chain_monitor_factory=FakeMonitor
+        )
+        runtime._rospy = FakeRospy()
+        config = StartupConfig(
+            robot_ip="192.168.131.3",
+            reverse_ip="192.168.131.1",
+            calibration_path="/tmp/real.yaml",
+            expected_calibration_hash="calib_13945068365021364089",
+            runtime_policy=RUNTIME_POLICY,
+        )
+
+        runtime.wait_control_chain_ready(config)
+
+        self.assertEqual(events[1:], ["started", ("ready", config.state_timeout)])
+        self.assertIs(events[0][1], RUNTIME_POLICY)
 
     def test_transient_topic_timeout_does_not_abort_ready_wait(self):
         class FakeRospy:

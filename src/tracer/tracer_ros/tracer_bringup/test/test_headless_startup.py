@@ -77,8 +77,8 @@ class FakeRuntime:
     def start_driver(self, config):
         self._event("start_driver")
 
-    def wait_driver_ready(self, config):
-        self._event("driver_ready")
+    def wait_control_chain_ready(self, config):
+        self._event("control_chain_ready")
 
     def start_gripper(self, config):
         self._event("start_gripper")
@@ -263,7 +263,7 @@ class StartupCoordinatorTest(unittest.TestCase):
                 "runtime_preflight",
                 "no_conflicts:d405",
                 "start_driver",
-                "driver_ready",
+                "control_chain_ready",
                 "start_gripper",
                 "gripper_ready",
                 "start_d405",
@@ -292,7 +292,8 @@ class StartupCoordinatorTest(unittest.TestCase):
         self.assertEqual(
             outputs[1:],
             [
-                "🤖 UR3 驱动已就绪",
+                "🔄 控制链状态: STARTING",
+                "✅ 控制链状态: READY",
                 "🦾 AG95 夹爪已就绪",
                 "📷 D405 相机已就绪",
                 "🐢 速度已限制为 5%",
@@ -328,7 +329,7 @@ class StartupCoordinatorTest(unittest.TestCase):
 
     def test_runtime_failure_after_driver_start_triggers_cleanup(self):
         dashboard = FakeDashboard(RobotStatus("RUNNING", "NORMAL"))
-        runtime = FakeRuntime(fail_at="driver_ready")
+        runtime = FakeRuntime(fail_at="control_chain_ready")
         coordinator = StartupCoordinator(
             dashboard, runtime, config(), confirm=lambda _: True, output=lambda _: None
         )

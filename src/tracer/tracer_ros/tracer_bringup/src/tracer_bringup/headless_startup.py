@@ -153,8 +153,9 @@ class StartupCoordinator:
 
         try:
             self.runtime.start_driver(self.config)
-            self.runtime.wait_driver_ready(self.config)
-            self.output("🤖 UR3 驱动已就绪")
+            self.output("🔄 控制链状态: STARTING")
+            self.runtime.wait_control_chain_ready(self.config)
+            self.output("✅ 控制链状态: READY")
             self.runtime.start_gripper(self.config)
             self.runtime.wait_gripper_ready(self.config)
             self.output("🦾 AG95 夹爪已就绪")

@@ -12,6 +12,12 @@ import time
 from typing import Any, Callable, Dict, Iterable, List, Sequence
 from urllib.parse import urlparse
 
+from .control_chain_monitor import (
+    ControlChainFault,
+    ControlChainNotReady,
+    RosControlChainMonitor,
+    controller_snapshot,
+)
 from .headless_startup import (
     StartupConfig,
     StartupError,
@@ -186,27 +192,13 @@ def should_start_robot_state_publisher(nodes: Iterable[str]) -> bool:
     return "/robot_state_publisher" not in set(nodes)
 
 
-def controller_snapshot(response: Any) -> List[Dict[str, Any]]:
-    result = []
-    for controller in response.controller:
-        result.append(
-            {
-                "name": controller.name,
-                "state": controller.state,
-                "claimed_resources": [
-                    {
-                        "hardware_interface": claim.hardware_interface,
-                        "resources": list(claim.resources),
-                    }
-                    for claim in controller.claimed_resources
-                ],
-            }
-        )
-    return result
-
-
 class RosRuntime:
-    def __init__(self, environment=None, diagnostic_output=None):
+    def __init__(
+        self,
+        environment=None,
+        diagnostic_output=None,
+        control_chain_monitor_factory=RosControlChainMonitor,
+    ):
         self.environment = dict(environment or os.environ)
         self.processes = []
         self.diagnostic_output = diagnostic_output or self._print_diagnostic
@@ -215,6 +207,9 @@ class RosRuntime:
         self.start_robot_state_publisher = True
         self.d405_state = "absent"
         self.package_paths = {}
+        self.control_chain_monitor = None
+        self._control_chain_monitor_factory = control_chain_monitor_factory
+        self._health_evaluation_period = 0.10
 
     @staticmethod
     def _print_diagnostic(message: str) -> None:
@@ -440,6 +435,7 @@ class RosRuntime:
         deadline = time.monotonic() + timeout
         last = None
         while time.monotonic() < deadline:
+            self._raise_if_control_fault()
             try:
                 last = self._rospy.wait_for_message(
                     topic,
@@ -451,6 +447,20 @@ class RosRuntime:
             if accepts(last):
                 return last
         raise StartupError(timeout_error(last))
+
+    def _wait_for_service_with_health(self, service_name: str, timeout: float) -> None:
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            self._raise_if_control_fault()
+            try:
+                self._rospy.wait_for_service(
+                    service_name,
+                    timeout=max(0.1, min(0.5, deadline - time.monotonic())),
+                )
+                return
+            except self._rospy.ROSException:
+                continue
+        raise StartupError("Timed out waiting for service %s" % service_name)
 
     def _wait_for_true(self, topic: str, message_type: Any, timeout: float) -> Any:
         return self._wait_for_matching_message(
@@ -499,8 +509,11 @@ class RosRuntime:
             topic, message_type, observe, queue_size=100
         )
         try:
-            if ready.wait(timeout):
-                return matched[0]
+            deadline = time.monotonic() + timeout
+            while time.monotonic() < deadline:
+                self._raise_if_control_fault()
+                if ready.wait(min(0.1, deadline - time.monotonic())):
+                    return matched[0]
         finally:
             subscription.unregister()
         raise StartupError(
@@ -562,33 +575,31 @@ class RosRuntime:
             ),
         )
 
-    def wait_driver_ready(self, config: StartupConfig) -> None:
+    def wait_control_chain_ready(self, config: StartupConfig) -> None:
         self._init_ros(config.state_timeout)
-        from controller_manager_msgs.srv import ListControllers
-        from sensor_msgs.msg import JointState
-        from std_msgs.msg import Bool, Float64
+        from std_msgs.msg import Float64
 
-        first = self._wait_for_named_joint_state(
-            "/ur/joint_states", JointState, REQUIRED_JOINTS, config.state_timeout
+        self._health_evaluation_period = (
+            config.runtime_policy.health_evaluation_period
         )
-        second = self._wait_for_named_joint_state(
-            "/ur/joint_states", JointState, REQUIRED_JOINTS, 2.0
+        self.control_chain_monitor = self._control_chain_monitor_factory(
+            self._rospy,
+            config.runtime_policy,
+            required_joints=REQUIRED_JOINTS,
+            target_controller=TARGET_CONTROLLER,
+            diagnostic_output=self._emit_diagnostic,
         )
-        self._assert_fresh_advancing_joint_states(first, second, "/ur/joint_states")
-
-        self._wait_for_true(
-            "/ur/ur_hardware_interface/robot_program_running",
-            Bool,
+        self.control_chain_monitor.start()
+        try:
+            self.control_chain_monitor.wait_until_ready(config.state_timeout)
+        except (ControlChainFault, ControlChainNotReady) as exc:
+            raise StartupError(str(exc)) from exc
+        scaling = self._wait_for_matching_message(
+            SPEED_SCALING_TOPIC,
+            Float64,
             config.state_timeout,
-        )
-        service_name = "/ur/controller_manager/list_controllers"
-        self._rospy.wait_for_service(service_name, timeout=config.state_timeout)
-        response = self._rospy.ServiceProxy(service_name, ListControllers)()
-        assert_exclusive_controller(
-            controller_snapshot(response), TARGET_CONTROLLER, REQUIRED_JOINTS
-        )
-        scaling = self._rospy.wait_for_message(
-            SPEED_SCALING_TOPIC, Float64, timeout=config.state_timeout
+            lambda _message: True,
+            lambda _last: "Timed out waiting for %s" % SPEED_SCALING_TOPIC,
         )
         if not 0.0 < scaling.data <= 1.0:
             raise StartupError("Invalid speed scaling value before startup: %s" % scaling.data)
@@ -638,14 +649,18 @@ class RosRuntime:
                     "Timed out waiting for required D405 message on %s" % topic
                 )
             try:
-                return self._rospy.wait_for_message(
-                    topic, message_type, timeout=remaining
+                return self._wait_for_matching_message(
+                    topic,
+                    message_type,
+                    remaining,
+                    lambda _message: True,
+                    lambda _last: "Timed out waiting for required D405 message on %s"
+                    % topic,
                 )
-            except self._rospy.ROSException as exc:
-                raise self._camera_startup_error(
-                    "Timed out waiting for required D405 message on %s: %s"
-                    % (topic, exc)
-                ) from exc
+            except StartupError as exc:
+                if "CONTROL CHAIN FAULT" in str(exc):
+                    raise
+                raise self._camera_startup_error(str(exc)) from exc
 
         color_first = receive(color_topic, Image)
         color_second = receive(color_topic, Image)
@@ -685,13 +700,14 @@ class RosRuntime:
         from ur_msgs.srv import SetSpeedSliderFraction
 
         service_name = "/ur/ur_hardware_interface/set_speed_slider"
-        self._rospy.wait_for_service(service_name, timeout=10.0)
+        self._wait_for_service_with_health(service_name, 10.0)
         response = self._rospy.ServiceProxy(service_name, SetSpeedSliderFraction)(fraction)
         if not response.success:
             raise StartupError("UR Driver rejected speed slider %.3f" % fraction)
         self._wait_for_speed_range(SPEED_SCALING_TOPIC, Float64, fraction, 5.0)
 
     def start_move_group(self, config: StartupConfig) -> None:
+        self._raise_if_control_fault()
         self._launch(
             "move_group",
             ["roslaunch", "tracer_bringup", "ur3_moveit_execution.launch"],
@@ -700,9 +716,15 @@ class RosRuntime:
     def wait_move_group_ready(self, config: StartupConfig) -> None:
         from actionlib_msgs.msg import GoalStatusArray
 
-        self._rospy.wait_for_service("/get_planning_scene", timeout=config.state_timeout)
-        self._rospy.wait_for_message(
-            "/move_group/status", GoalStatusArray, timeout=config.state_timeout
+        self._wait_for_service_with_health(
+            "/get_planning_scene", config.state_timeout
+        )
+        self._wait_for_matching_message(
+            "/move_group/status",
+            GoalStatusArray,
+            config.state_timeout,
+            lambda _message: True,
+            lambda _last: "Timed out waiting for /move_group/status",
         )
 
     def start_rviz(self, config: StartupConfig) -> None:
@@ -723,6 +745,7 @@ class RosRuntime:
 
     def supervise(self) -> None:
         while True:
+            self._raise_if_control_fault()
             for label, process in self.processes:
                 code = process.poll()
                 if code is None:
@@ -730,7 +753,30 @@ class RosRuntime:
                 if label == "rviz" and code == 0:
                     return
                 raise StartupError("%s exited unexpectedly with code %d" % (label, code))
-            time.sleep(0.5)
+            time.sleep(self._health_evaluation_period)
+
+    def _disable_moveit_execution(self) -> None:
+        retained = []
+        for label, process in self.processes:
+            if label == "move_group":
+                self._shutdown_process(process)
+            else:
+                retained.append((label, process))
+        self.processes = retained
+
+    def _raise_if_control_fault(self) -> None:
+        if self.control_chain_monitor is None:
+            return
+        try:
+            self.control_chain_monitor.raise_if_fault()
+        except ControlChainFault as exc:
+            self._disable_moveit_execution()
+            message = (
+                "CONTROL CHAIN FAULT: %s. New MoveIt Execute is disabled. "
+                "Full restart required."
+            ) % exc
+            self._emit_diagnostic("❌ " + message)
+            raise StartupError(message) from exc
 
     def _shutdown_controller_spawner(self) -> None:
         result = self._run(
@@ -769,6 +815,8 @@ class RosRuntime:
         self._wait_for_processes(running, SHUTDOWN_SIGKILL_TIMEOUT)
 
     def shutdown(self) -> None:
+        if self.control_chain_monitor is not None:
+            self.control_chain_monitor.stop()
         ordered_labels = set(SHUTDOWN_PROCESS_ORDER)
         driver_running = any(
             label == "ur_driver" and process.poll() is None

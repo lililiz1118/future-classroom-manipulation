@@ -123,6 +123,7 @@ class HeadlessLaunchTest(unittest.TestCase):
         self.assertIn("dh_gripper_msgs", dependencies)
         self.assertIn("joint_state_publisher", dependencies)
         self.assertIn("realsense2_camera", dependencies)
+        self.assertIn("ur_dashboard_msgs", dependencies)
 
     def test_d405_launch_contains_no_base_or_d455_nodes(self):
         result = subprocess.run(
