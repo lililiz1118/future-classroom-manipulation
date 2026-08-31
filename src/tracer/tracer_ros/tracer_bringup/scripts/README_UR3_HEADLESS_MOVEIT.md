@@ -105,7 +105,9 @@ MoveIt 执行前的关节状态时序竞争。
 
 ## RViz 操作
 
-等待终端报告控制链 `READY`、夹爪、D405（默认模式）、速度缩放和 move_group Ready。RViz 会自动启用配置好的 `D405 Color` Image 显示，其精确图像话题为 `/d405/color/image_raw`，无需手动输入话题。
+等待终端报告控制链 `READY`、夹爪、D405（默认模式）、速度缩放和 move_group Ready。
+`D405 Color` 是可选的 RViz Image 显示，话题为 `/d405/color/image_raw`；AnyGrasp
+直接使用 `/d405/depth/color/points`，不依赖该彩色图显示或其 RViz 订阅。
 
 1. 在 MotionPlanning 面板选择 `arm`。
 2. 拖动交互标记设置目标。

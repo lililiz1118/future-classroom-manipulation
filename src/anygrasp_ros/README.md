@@ -22,6 +22,11 @@ roslaunch anygrasp_ros anygrasp_d405.launch
 - `OPENBLAS_NUM_THREADS=2`（当前 NumPy 构建使用 OpenBLAS）；
 - nice 增量：10。
 
+nice 是相对进程启动基线增加的值。`robot-lz` 上控制链登录会话应为 nice 0，因而
+AnyGrasp 的预期实际值是 nice 10；UR Driver、MoveIt、D405 和 RViz 保持 nice 0。
+`/etc/security/limits.d/99-realtime.conf` 中 `priority` 表示 Unix nice，而不是实时
+优先级，必须保持为 0，不能写成 99（99 会被截断为最低优先级 nice 19）。
+
 这些值是可调验证参数，不是不可更改的硬编码。可复制 YAML、修改并通过 launch
 参数替换，而不改节点脚本：
 
@@ -30,8 +35,9 @@ roslaunch anygrasp_ros anygrasp_d405.launch \
   resource_config_file:=/absolute/path/to/anygrasp_resources.yaml
 ```
 
-节点启动日志会输出请求值和实际 PyTorch/OMP/MKL/OpenBLAS/nice 值。环境线程限制
-在导入 NumPy 前应用，PyTorch intra/inter-op 限制在导入 `gsnet` 前应用。
+节点启动日志会输出 OMP/MKL/OpenBLAS 请求值、实际 nice，以及 PyTorch 请求值和
+实际值。环境线程限制在导入 NumPy 前应用，PyTorch intra/inter-op 限制在导入
+`gsnet` 前应用。
 
 ## 与 UR3 故障门禁的关系
 
