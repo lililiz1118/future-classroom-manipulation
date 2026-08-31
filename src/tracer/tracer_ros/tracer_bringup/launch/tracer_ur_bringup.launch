@@ -4,6 +4,7 @@
   <arg name="debug"                   default="false"                                     doc="Debug flag that will get passed on to ur_common.launch"/>
   <arg name="robot_ip"                default="$(optenv TRACER_UR_IP 192.168.131.3)"      doc="IP address by which the robot can be reached."/>
   <arg name="reverse_ip"              default=""                                          doc="IP of the driver, if set to empty it will detect it automatically."/>
+  <arg name="robot_receive_timeout"   default="0.02"                                      doc="Robot command response timeout forwarded to ur_control.launch."/>
   <arg name="reverse_port"            default="$(optenv TRACER_UR_REVERSE_PORT 50001)"     doc="Port that will be opened by the driver to allow direct communication between the driver and the robot controller."/>
   <arg name="script_sender_port"      default="$(optenv TRACER_UR_SENDER_PORT 50002)"      doc="The driver will offer an interface to receive the program's URScript on this port. If the robot cannot connect to this port, `External Control` will stop immediately."/>
   <arg name="trajectory_port"         default="$(optenv TRACER_UR_TRAJECTORY_PORT 50003)"  doc="Port that will be opened by the driver to allow trajectory forwarding."/>
@@ -37,6 +38,7 @@
       <arg name="controller_config_file" value="$(arg controller_config_file)"/>
       <arg name="robot_ip" value="$(arg robot_ip)"/>
       <arg name="reverse_ip" value="$(arg reverse_ip)"/>
+      <arg name="robot_receive_timeout" value="$(arg robot_receive_timeout)"/>
       <arg name="reverse_port" value="$(arg reverse_port)"/>
       <arg name="script_sender_port" value="$(arg script_sender_port)"/>
       <arg name="trajectory_port" value="$(arg trajectory_port)"/>

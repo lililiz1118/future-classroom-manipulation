@@ -29,9 +29,13 @@ from tracer_bringup.headless_runtime import (  # noqa: E402
 )
 from tracer_bringup.headless_startup import StartupError  # noqa: E402
 from tracer_bringup.headless_startup import StartupConfig  # noqa: E402
+from tracer_bringup.runtime_config import load_ur_runtime_policy  # noqa: E402
 
 
 GRIPPER_JOINT = "gripper_finger1_joint"
+RUNTIME_POLICY = load_ur_runtime_policy(
+    os.path.join(PACKAGE_ROOT, "config", "ur3_runtime.yaml")
+)
 
 
 class LaunchOutputTest(unittest.TestCase):
@@ -292,6 +296,7 @@ class D405LaunchOwnershipTest(unittest.TestCase):
             reverse_ip="192.168.131.1",
             calibration_path="/tmp/real.yaml",
             expected_calibration_hash="calib_13945068365021364089",
+            runtime_policy=RUNTIME_POLICY,
             enable_d405=enabled,
         )
 
@@ -334,6 +339,31 @@ class D405LaunchOwnershipTest(unittest.TestCase):
             runtime.shutdown()
 
         killpg.assert_called_once_with(4321, signal.SIGINT)
+
+
+class DriverLaunchPolicyTest(unittest.TestCase):
+    def test_driver_command_explicitly_passes_controlled_receive_timeout(self):
+        class RecordingRuntime(RosRuntime):
+            def __init__(self):
+                super().__init__(environment={})
+                self.launch = None
+
+            def _launch(self, label, command):
+                self.launch = (label, list(command))
+
+        runtime = RecordingRuntime()
+        runtime.start_driver(
+            StartupConfig(
+                robot_ip="192.168.131.3",
+                reverse_ip="192.168.131.1",
+                calibration_path="/tmp/real.yaml",
+                expected_calibration_hash="calib_13945068365021364089",
+                runtime_policy=RUNTIME_POLICY,
+            )
+        )
+
+        self.assertEqual(runtime.launch[0], "ur_driver")
+        self.assertIn("robot_receive_timeout:=0.10", runtime.launch[1])
 
 
 class CameraNodeClassificationTest(unittest.TestCase):
@@ -453,6 +483,7 @@ class RuntimePreflightTest(unittest.TestCase):
             reverse_ip="192.168.131.1",
             calibration_path=calibration.name,
             expected_calibration_hash="calib_13945068365021364089",
+            runtime_policy=RUNTIME_POLICY,
         )
 
         with self.assertRaisesRegex(StartupError, "ur_robot_driver_node"):
@@ -521,6 +552,7 @@ class RuntimePreflightTest(unittest.TestCase):
             reverse_ip="192.168.131.1",
             calibration_path=calibration.name,
             expected_calibration_hash="calib_13945068365021364089",
+            runtime_policy=RUNTIME_POLICY,
             gripper_device="/dev/null",
         )
 
@@ -557,6 +589,7 @@ class RuntimePreflightTest(unittest.TestCase):
                         reverse_ip="",
                         calibration_path="",
                         expected_calibration_hash="",
+                        runtime_policy=RUNTIME_POLICY,
                         enable_d405=True,
                     )
                 )
@@ -571,6 +604,7 @@ class RuntimePreflightTest(unittest.TestCase):
                     reverse_ip="",
                     calibration_path="",
                     expected_calibration_hash="",
+                    runtime_policy=RUNTIME_POLICY,
                     enable_d405=True,
                 )
             )
@@ -580,6 +614,7 @@ class RuntimePreflightTest(unittest.TestCase):
                     reverse_ip="",
                     calibration_path="",
                     expected_calibration_hash="",
+                    runtime_policy=RUNTIME_POLICY,
                     enable_d405=False,
                 )
             )
@@ -683,6 +718,7 @@ def camera_config(enable_d405=True):
         reverse_ip="192.168.131.1",
         calibration_path="/tmp/real.yaml",
         expected_calibration_hash="calib_13945068365021364089",
+        runtime_policy=RUNTIME_POLICY,
         state_timeout=0.01,
         enable_d405=enable_d405,
     )
@@ -967,6 +1003,7 @@ class RosSnapshotTest(unittest.TestCase):
                 reverse_ip="192.168.131.1",
                 calibration_path="/tmp/real.yaml",
                 expected_calibration_hash="calib_13945068365021364089",
+                runtime_policy=RUNTIME_POLICY,
             )
         )
 
@@ -988,6 +1025,7 @@ class RosSnapshotTest(unittest.TestCase):
             reverse_ip="192.168.131.1",
             calibration_path="/tmp/real.yaml",
             expected_calibration_hash="calib_13945068365021364089",
+            runtime_policy=RUNTIME_POLICY,
             gripper_device="/dev/test_ag95",
         )
 
@@ -1025,6 +1063,7 @@ class RosSnapshotTest(unittest.TestCase):
                 reverse_ip="192.168.131.1",
                 calibration_path="/tmp/real.yaml",
                 expected_calibration_hash="calib_13945068365021364089",
+                runtime_policy=RUNTIME_POLICY,
             )
         )
 
@@ -1126,6 +1165,7 @@ class RosSnapshotTest(unittest.TestCase):
                     reverse_ip="192.168.131.1",
                     calibration_path="/tmp/real.yaml",
                     expected_calibration_hash="calib_13945068365021364089",
+                    runtime_policy=RUNTIME_POLICY,
                 )
             )
         self.assertEqual(runtime.topics, ["/ur/joint_states", "/ur/joint_states"])

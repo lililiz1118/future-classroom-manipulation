@@ -374,6 +374,8 @@ class RosRuntime:
                 "ur3_headless_driver.launch",
                 "robot_ip:=%s" % config.robot_ip,
                 "reverse_ip:=%s" % config.reverse_ip,
+                "robot_receive_timeout:=%.2f"
+                % config.runtime_policy.robot_receive_timeout,
                 "kinematics_config:=%s" % config.calibration_path,
                 "start_robot_state_publisher:=%s"
                 % ("true" if self.start_robot_state_publisher else "false"),

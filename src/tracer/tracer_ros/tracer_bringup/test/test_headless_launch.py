@@ -35,6 +35,9 @@ class HeadlessLaunchTest(unittest.TestCase):
             "calib_13945068365021364089",
         )
         self.assertIn("-0.2436409187296593", params["/robot_description"])
+        self.assertEqual(
+            params["/ur/ur_hardware_interface/robot_receive_timeout"], 0.10
+        )
 
     def test_headless_driver_aggregates_arm_and_gripper_joint_states(self):
         params = self.dump("ur3_headless_driver.launch")
