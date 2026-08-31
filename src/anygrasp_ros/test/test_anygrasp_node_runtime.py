@@ -367,8 +367,17 @@ class AnyGraspAdapterWorkingDirectoryTest(unittest.TestCase):
         )
         probe = f'''import importlib.util
 import os
+import sys
 import tempfile
+import types
 from pathlib import Path
+
+torch = types.ModuleType("torch")
+torch.set_num_threads = lambda value: None
+torch.set_num_interop_threads = lambda value: None
+torch.get_num_threads = lambda: 2
+torch.get_num_interop_threads = lambda: 1
+sys.modules["torch"] = torch
 
 node_path = Path({str(NODE_PATH)!r})
 spec = importlib.util.spec_from_file_location("adapter_cwd_probe", node_path)
