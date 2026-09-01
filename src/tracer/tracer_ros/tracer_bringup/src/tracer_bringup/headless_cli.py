@@ -41,6 +41,11 @@ def build_argument_parser() -> argparse.ArgumentParser:
         dest="enable_d405",
         help="run UR3, AG95, MoveIt and RViz without requiring or starting D405",
     )
+    parser.add_argument(
+        "--driver-only",
+        action="store_true",
+        help="diagnose only the guarded UR driver control chain; skip AG95, D405, MoveIt and RViz",
+    )
     parser.add_argument("--speed-slider", type=_low_speed_fraction, default=0.05)
     parser.add_argument(
         "--runtime-config",
@@ -63,7 +68,7 @@ def explicit_confirmation(
 ) -> bool:
     output("")
     output("================ UR3 实机安全确认 ================")
-    output("当前系统即将通过 Dashboard 上电并松闸，并初始化 DH AG95（夹爪可能运动）。")
+    output("当前系统即将执行下述硬件启动操作。")
     output(prompt)
     output("本程序不会自动解除保护停机、急停、Fault 或 Violation。")
     output("没有示教器时，SSH/Ctrl+C 不能替代独立硬件急停。")
@@ -98,7 +103,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             expected_calibration_hash=EXPECTED_CALIBRATION_HASH,
             runtime_policy=runtime_policy,
             gripper_device=arguments.gripper_device,
-            enable_d405=arguments.enable_d405,
+            enable_d405=arguments.enable_d405 and not arguments.driver_only,
+            driver_only=arguments.driver_only,
             speed_slider=arguments.speed_slider,
             state_timeout=arguments.state_timeout,
             preflight_only=arguments.preflight_only,

@@ -27,6 +27,7 @@ class HeadlessCliTest(unittest.TestCase):
         self.assertEqual(arguments.speed_slider, 0.05)
         self.assertFalse(hasattr(arguments, "allow_reduced"))
         self.assertFalse(arguments.preflight_only)
+        self.assertFalse(arguments.driver_only)
 
         with self.assertRaises(SystemExit):
             build_argument_parser().parse_args(["--allow-reduced"])
@@ -93,13 +94,26 @@ class HeadlessCliTest(unittest.TestCase):
         outputs = []
 
         explicit_confirmation(
-            "warning", input_fn=lambda _: "cancel", output=outputs.append
+            "将初始化 AG95（夹爪可能运动）。",
+            input_fn=lambda _: "cancel",
+            output=outputs.append,
         )
 
         self.assertTrue(
             any("AG95" in line and "可能运动" in line for line in outputs),
             "the single START gate must disclose physical gripper motion",
         )
+
+    def test_confirmation_does_not_invent_unrequested_hardware(self):
+        outputs = []
+
+        explicit_confirmation(
+            "仅驱动诊断，不启动夹爪、相机、MoveIt 或 RViz。",
+            input_fn=lambda _: "cancel",
+            output=outputs.append,
+        )
+
+        self.assertFalse(any("AG95" in line for line in outputs))
 
     def test_startup_failure_has_chinese_summary_and_original_diagnostics(self):
         errors = io.StringIO()
@@ -172,6 +186,31 @@ class HeadlessCliTest(unittest.TestCase):
         parser = build_argument_parser()
         self.assertTrue(parser.parse_args([]).enable_d405)
         self.assertFalse(parser.parse_args(["--no-d405"]).enable_d405)
+
+    def test_driver_only_is_explicit_and_disables_d405_in_startup_config(self):
+        observed = []
+
+        def capture(coordinator):
+            observed.append(coordinator.config)
+
+        with mock.patch(
+            "tracer_bringup.headless_cli.StartupCoordinator.run",
+            autospec=True,
+            side_effect=capture,
+        ):
+            exit_code = main(
+                [
+                    "--calibration",
+                    "/tmp/test-calibration.yaml",
+                    "--runtime-config",
+                    RUNTIME_POLICY_PATH,
+                    "--driver-only",
+                ]
+            )
+
+        self.assertEqual(exit_code, 0)
+        self.assertTrue(observed[0].driver_only)
+        self.assertFalse(observed[0].enable_d405)
 
 if __name__ == "__main__":
     unittest.main()

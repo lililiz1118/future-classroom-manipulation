@@ -189,6 +189,7 @@ class StartupCoordinatorTest(unittest.TestCase):
         )
         self.assertEqual(startup_config.gripper_device, "/dev/dh_gripper_usb")
         self.assertTrue(startup_config.enable_d405)
+        self.assertFalse(startup_config.driver_only)
 
     def test_confirmation_rejection_has_no_mutating_side_effect(self):
         dashboard = FakeDashboard(RobotStatus("POWER_OFF", "NORMAL"))
@@ -326,6 +327,56 @@ class StartupCoordinatorTest(unittest.TestCase):
 
         self.assertNotIn("start_d405", runtime.events)
         self.assertNotIn("d405_ready", runtime.events)
+
+    def test_driver_only_runs_only_the_guarded_control_chain(self):
+        dashboard = FakeDashboard(RobotStatus("RUNNING", "NORMAL"))
+        runtime = FakeRuntime()
+        confirmations = []
+        outputs = []
+        driver_only_config = StartupConfig(
+            robot_ip="192.168.131.3",
+            reverse_ip="192.168.131.1",
+            calibration_path="/tmp/real.yaml",
+            expected_calibration_hash=EXPECTED_HASH,
+            runtime_policy=load_ur_runtime_policy(
+                os.path.join(PACKAGE_ROOT, "config", "ur3_runtime.yaml")
+            ),
+            speed_slider=0.05,
+            state_timeout=20.0,
+            enable_d405=False,
+            driver_only=True,
+        )
+        coordinator = StartupCoordinator(
+            dashboard,
+            runtime,
+            driver_only_config,
+            confirm=lambda prompt: confirmations.append(prompt) or True,
+            output=outputs.append,
+        )
+
+        coordinator.run()
+
+        self.assertIn("仅驱动诊断", confirmations[0])
+        self.assertNotIn("AG95", confirmations[0])
+        self.assertEqual(
+            runtime.events,
+            [
+                "runtime_preflight",
+                "no_conflicts:no-d405",
+                "start_driver",
+                "control_chain_ready",
+                "supervise",
+                "shutdown",
+            ],
+        )
+        self.assertEqual(
+            outputs[1:],
+            [
+                "🔄 控制链状态: STARTING",
+                "✅ 控制链状态: READY",
+                "🧪 仅驱动诊断已就绪（未启动夹爪、D405、MoveIt 和 RViz）",
+            ],
+        )
 
     def test_runtime_failure_after_driver_start_triggers_cleanup(self):
         dashboard = FakeDashboard(RobotStatus("RUNNING", "NORMAL"))

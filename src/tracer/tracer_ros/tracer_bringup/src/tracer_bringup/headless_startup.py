@@ -28,6 +28,7 @@ class StartupConfig:
     runtime_policy: UrRuntimePolicy
     gripper_device: str = "/dev/dh_gripper_usb"
     enable_d405: bool = True
+    driver_only: bool = False
     speed_slider: float = 0.05
     state_timeout: float = 30.0
     preflight_only: bool = False
@@ -113,25 +114,43 @@ class StartupCoordinator:
         allowed_initial_modes = {"POWER_OFF", "BOOTING", "POWER_ON", "IDLE", "RUNNING"}
         if status.robot_mode not in allowed_initial_modes:
             raise StartupError("Robot mode is not startable: %s" % status.robot_mode)
-        self.output(
-            "UR3 %s | robot=%s | safety=%s | calibration=%s | AG95=%s | D405=%s | speed=%.0f%%"
-            % (
-                self.config.robot_ip,
-                status.robot_mode,
-                status.safety_mode,
-                self.config.expected_calibration_hash,
-                self.config.gripper_device,
-                "required" if self.config.enable_d405 else "disabled",
-                self.config.speed_slider * 100.0,
+        if self.config.driver_only:
+            self.output(
+                "UR3 %s | robot=%s | safety=%s | calibration=%s | mode=driver-only"
+                % (
+                    self.config.robot_ip,
+                    status.robot_mode,
+                    status.safety_mode,
+                    self.config.expected_calibration_hash,
+                )
             )
-        )
+        else:
+            self.output(
+                "UR3 %s | robot=%s | safety=%s | calibration=%s | AG95=%s | D405=%s | speed=%.0f%%"
+                % (
+                    self.config.robot_ip,
+                    status.robot_mode,
+                    status.safety_mode,
+                    self.config.expected_calibration_hash,
+                    self.config.gripper_device,
+                    "required" if self.config.enable_d405 else "disabled",
+                    self.config.speed_slider * 100.0,
+                )
+            )
         if self.config.preflight_only:
             self.output("Preflight passed; no hardware state was changed.")
             return
-        if not self.confirm(
-            "确认工作区和夹爪周围无人、独立硬件急停可用，并允许 UR3 "
-            "上电、松闸及 DH AG95 初始化"
-        ):
+        if self.config.driver_only:
+            confirmation = (
+                "仅驱动诊断：确认工作区无人、独立硬件急停可用，并允许 UR3 "
+                "上电、松闸；不会启动夹爪、相机、MoveIt 或 RViz"
+            )
+        else:
+            confirmation = (
+                "确认工作区和夹爪周围无人、独立硬件急停可用，并允许 UR3 "
+                "上电、松闸及 DH AG95 初始化（夹爪可能运动）"
+            )
+        if not self.confirm(confirmation):
             raise StartupAborted("Operator confirmation was not accepted")
 
         if status.robot_mode == "POWER_OFF":
@@ -156,6 +175,12 @@ class StartupCoordinator:
             self.output("🔄 控制链状态: STARTING")
             self.runtime.wait_control_chain_ready(self.config)
             self.output("✅ 控制链状态: READY")
+            if self.config.driver_only:
+                self.output(
+                    "🧪 仅驱动诊断已就绪（未启动夹爪、D405、MoveIt 和 RViz）"
+                )
+                self.runtime.supervise()
+                return
             self.runtime.start_gripper(self.config)
             self.runtime.wait_gripper_ready(self.config)
             self.output("🦾 AG95 夹爪已就绪")
