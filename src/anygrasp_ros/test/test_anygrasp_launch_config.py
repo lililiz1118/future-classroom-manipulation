@@ -12,7 +12,7 @@ RESOURCE_CONFIG_PATH = PACKAGE_ROOT / "config" / "anygrasp_resources.yaml"
 
 
 class AnyGraspConfigurationTest(unittest.TestCase):
-    def test_config_matches_verified_d405_and_sdk_defaults(self):
+    def test_config_matches_verified_d405_and_sdk_settings(self):
         self.assertTrue(CONFIG_PATH.is_file(), f"missing config: {CONFIG_PATH}")
         config = yaml.safe_load(CONFIG_PATH.read_text(encoding="utf-8"))
 
@@ -24,20 +24,29 @@ class AnyGraspConfigurationTest(unittest.TestCase):
         )
         self.assertEqual(config["top_n"], 10)
         self.assertEqual(config["inference_rate"], 0.2)
-        self.assertFalse(config["publish_input_cloud"])
+        self.assertTrue(config["publish_input_cloud"])
         self.assertTrue(config["collision_detection"])
         self.assertTrue(config["top_down_grasp"])
         self.assertFalse(config["dense_grasp"])
         self.assertEqual(config["voxel_size"], 0.005)
+        self.assertEqual(config["min_workspace_points"], 1000)
+        self.assertEqual(
+            config["statistical_outlier_filter"],
+            {
+                "enabled": True,
+                "nb_neighbors": 20,
+                "std_ratio": 2.0,
+            },
+        )
         self.assertEqual(
             config["workspace"],
             {
-                "x_min": -0.5,
-                "x_max": 0.5,
-                "y_min": -0.5,
-                "y_max": 0.5,
-                "z_min": 0.1,
-                "z_max": 1.5,
+                "x_min": -0.28,
+                "x_max": 0.3,
+                "y_min": -0.3,
+                "y_max": 0.03,
+                "z_min": 0.18,
+                "z_max": 0.35,
             },
         )
 
