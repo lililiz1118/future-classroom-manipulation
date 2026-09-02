@@ -13,11 +13,13 @@ sys.path.insert(0, str(PACKAGE_ROOT / "src"))
 try:
     from anygrasp_ros.core import (  # noqa: E402
         decode_packed_rgb,
-        filter_workspace,
+        dynamic_point_bounds,
         grasp_axes,
         rotation_matrix_to_quaternion,
+        select_workspace,
+        transform_points,
     )
-except ModuleNotFoundError as exc:
+except (ImportError, ModuleNotFoundError) as exc:
     CORE_IMPORT_ERROR = exc
 else:
     CORE_IMPORT_ERROR = None
@@ -54,15 +56,62 @@ class DecodePackedRgbTest(unittest.TestCase):
 
 
 @unittest.skipIf(CORE_IMPORT_ERROR is not None, "core module not implemented")
-class WorkspaceFilterTest(unittest.TestCase):
-    def test_combined_mask_decodes_only_workspace_rgb_and_preserves_counts(self):
-        points = np.array(
+class PointTransformTest(unittest.TestCase):
+    def test_translation_is_applied_to_all_points(self):
+        points = np.array([[0.1, 0.2, 0.3], [-1.0, 0.0, 2.0]], dtype=np.float32)
+
+        transformed = transform_points(
+            points,
+            rotation=np.eye(3),
+            translation=np.array([1.0, 2.0, 3.0]),
+        )
+
+        np.testing.assert_allclose(
+            transformed,
+            [[1.1, 2.2, 3.3], [0.0, 2.0, 5.0]],
+            atol=1e-6,
+        )
+        self.assertEqual(transformed.dtype, np.float32)
+
+    def test_rotation_then_translation_uses_target_from_source_convention(self):
+        rotation = np.array(
+            [[0.0, -1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]],
+            dtype=np.float64,
+        )
+
+        transformed = transform_points(
+            np.array([[1.0, 0.0, 0.0], [0.0, 2.0, 1.0]], dtype=np.float32),
+            rotation=rotation,
+            translation=np.array([10.0, 20.0, 30.0]),
+        )
+
+        np.testing.assert_allclose(
+            transformed,
+            [[10.0, 21.0, 30.0], [8.0, 20.0, 31.0]],
+            atol=1e-6,
+        )
+
+
+@unittest.skipIf(CORE_IMPORT_ERROR is not None, "core module not implemented")
+class WorkspaceSelectionTest(unittest.TestCase):
+    def test_base_frame_mask_selects_original_camera_points_and_matching_rgb(self):
+        camera_points = np.array(
             [
-                [0.0, 0.0, 0.5],
-                [np.nan, 0.0, 0.5],
-                [0.6, 0.0, 0.5],
-                [0.0, 0.0, 2.0],
-                [-0.5, 0.5, 0.1],
+                [10.0, 0.0, 0.1],
+                [20.0, 0.0, 0.2],
+                [30.0, 0.0, 0.3],
+                [40.0, 0.0, 0.4],
+                [50.0, 0.0, 0.5],
+            ],
+            dtype=np.float32,
+        )
+        base_points = np.array(
+            [
+                [0.5, 0.5, 0.5],
+                [1.1, 0.5, 0.5],
+                [0.5, -0.1, 0.5],
+                [0.5, 0.5, 1.1],
+                [0.2, 0.3, 0.4],
             ],
             dtype=np.float32,
         )
@@ -71,31 +120,51 @@ class WorkspaceFilterTest(unittest.TestCase):
             dtype=np.uint32,
         )
 
-        result = filter_workspace(
-            points, packed_rgb, (-0.5, 0.5, -0.5, 0.5, 0.1, 1.5)
+        result = select_workspace(
+            camera_points,
+            base_points,
+            packed_rgb,
+            (0.0, 1.0, 0.0, 1.0, 0.0, 1.0),
         )
 
-        self.assertEqual(result.raw_count, 5)
-        self.assertEqual(result.valid_count, 4)
-        self.assertEqual(result.workspace_count, 2)
-        np.testing.assert_allclose(result.points, points[[0, 4]])
+        self.assertEqual(result.camera_cloud.raw_count, 5)
+        self.assertEqual(result.camera_cloud.valid_count, 5)
+        self.assertEqual(result.camera_cloud.workspace_count, 2)
+        np.testing.assert_array_equal(result.camera_cloud.points, camera_points[[0, 4]])
+        np.testing.assert_array_equal(result.workspace_points, base_points[[0, 4]])
         np.testing.assert_allclose(
-            result.colors,
+            result.camera_cloud.colors,
             np.array(
                 [[1.0, 0.0, 0.0], [64.0 / 255.0, 128.0 / 255.0, 191.0 / 255.0]],
                 dtype=np.float32,
             ),
         )
-        self.assertEqual(result.points.dtype, np.float32)
-        self.assertEqual(result.colors.dtype, np.float32)
 
-    def test_point_packed_rgb_length_mismatch_is_rejected(self):
+    def test_camera_base_and_rgb_length_mismatch_is_rejected(self):
         with self.assertRaisesRegex(ValueError, "same number"):
-            filter_workspace(
+            select_workspace(
                 np.zeros((2, 3), dtype=np.float32),
+                np.zeros((1, 3), dtype=np.float32),
                 np.zeros(1, dtype=np.uint32),
                 (-0.5, 0.5, -0.5, 0.5, 0.1, 1.5),
             )
+
+
+@unittest.skipIf(CORE_IMPORT_ERROR is not None, "core module not implemented")
+class DynamicPointBoundsTest(unittest.TestCase):
+    def test_bounds_include_configured_margin_on_each_axis(self):
+        points = np.array(
+            [[-0.2, 1.0, 0.4], [0.3, 1.5, 0.9], [0.0, 1.2, 0.6]],
+            dtype=np.float32,
+        )
+
+        bounds = dynamic_point_bounds(points, margin=0.02)
+
+        np.testing.assert_allclose(
+            bounds,
+            (-0.22, 0.32, 0.98, 1.52, 0.38, 0.92),
+            atol=1e-7,
+        )
 
 
 @unittest.skipIf(CORE_IMPORT_ERROR is not None, "core module not implemented")

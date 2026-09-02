@@ -19,6 +19,8 @@ if SYSTEM_PYTHON not in sys.path:
     sys.path.append(SYSTEM_PYTHON)
 
 import rospy  # noqa: E402
+import tf2_ros  # noqa: E402
+from geometry_msgs.msg import TransformStamped  # noqa: E402
 from sensor_msgs import point_cloud2  # noqa: E402
 from sensor_msgs.msg import PointCloud2, PointField  # noqa: E402
 from std_msgs.msg import Header  # noqa: E402
@@ -30,6 +32,7 @@ NODE_PATH = PACKAGE_ROOT / "scripts" / "anygrasp_d405_node.py"
 SPEC = importlib.util.spec_from_file_location("anygrasp_d405_node_under_test", NODE_PATH)
 NODE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(NODE)
+from anygrasp_ros.core import FilteredCloud  # noqa: E402
 
 
 class CapturePublisher:
@@ -44,7 +47,10 @@ class FakeGrasp:
     def __init__(self, score):
         self.score = float(score)
         self.translation = np.array([score, 0.02, 0.5], dtype=np.float64)
-        self.rotation_matrix = np.eye(3, dtype=np.float64)
+        self.rotation_matrix = np.array(
+            [[1.0, 0.0, 0.0], [0.0, 0.0, -1.0], [0.0, 1.0, 0.0]],
+            dtype=np.float64,
+        )
         self.width = 0.04
         self.depth = 0.03
 
@@ -82,17 +88,49 @@ class FakeAdapter:
         return self.group
 
 
+class FakeTfBuffer:
+    def __init__(self, transform=None, error=None):
+        self.transform = transform
+        self.error = error
+        self.calls = []
+
+    def lookup_transform(self, target_frame, source_frame, stamp, timeout):
+        self.calls.append((target_frame, source_frame, stamp, timeout))
+        if self.error is not None:
+            raise self.error
+        return self.transform
+
+
+def make_transform(stamp=rospy.Time(999, 1)):
+    transform = TransformStamped()
+    transform.header = Header(stamp=stamp, frame_id="ur_arm_base_link")
+    transform.child_frame_id = "d405_depth_optical_frame"
+    transform.transform.translation.x = 1.0
+    transform.transform.translation.y = 2.0
+    transform.transform.translation.z = 3.0
+    root_half = math.sqrt(0.5)
+    transform.transform.rotation.z = root_half
+    transform.transform.rotation.w = root_half
+    return transform
+
+
 def make_node(scores=(0.2, 0.9, 0.5)):
     node = NODE.AnyGraspD405Node.__new__(NODE.AnyGraspD405Node)
-    node._workspace_bounds = (-0.5, 0.5, -0.5, 0.5, 0.1, 1.5)
+    node._workspace_frame = "ur_arm_base_link"
+    node._workspace_bounds = (0.5, 1.5, 1.5, 3.0, 3.0, 4.0)
+    node._dynamic_lims_margin = 0.01
+    node._tf_timeout = rospy.Duration.from_sec(0.2)
+    node._tf_buffer = FakeTfBuffer(make_transform())
     node._min_workspace_points = 1
     node._top_n = 2
     node._publish_input = True
     node._inference_rate = 1.0
     node._marker_lifetime = rospy.Duration.from_sec(2.5)
     node._input_publisher = CapturePublisher()
+    node._workspace_publisher = CapturePublisher()
     node._marker_publisher = CapturePublisher()
     node._best_publisher = CapturePublisher()
+    node._best_base_publisher = CapturePublisher()
     node._adapter = FakeAdapter(scores)
     return node
 
@@ -185,6 +223,7 @@ class PointCloudConversionTest(unittest.TestCase):
 class NodeDefaultsTest(unittest.TestCase):
     def test_publish_input_cloud_defaults_to_false_without_parameter(self):
         workspace = {
+            "frame_id": "ur_arm_base_link",
             "x_min": -0.5,
             "x_max": 0.5,
             "y_min": -0.5,
@@ -206,7 +245,9 @@ class NodeDefaultsTest(unittest.TestCase):
             NODE.rospy, "get_param", side_effect=get_param
         ), patch.object(NODE, "AnyGraspAdapter"), patch.object(
             NODE.rospy, "Publisher", return_value=CapturePublisher()
-        ), patch.object(NODE.rospy, "Subscriber"):
+        ), patch.object(NODE.rospy, "Subscriber"), patch.object(
+            NODE.tf2_ros, "Buffer", return_value=FakeTfBuffer(make_transform())
+        ), patch.object(NODE.tf2_ros, "TransformListener"):
             node = NODE.AnyGraspD405Node()
 
         self.assertFalse(node._publish_input)
@@ -226,11 +267,40 @@ class ProcessCloudTest(unittest.TestCase):
 
         self.assertEqual(len(node._adapter.calls), 1)
         np.testing.assert_allclose(node._adapter.calls[0][0], points)
-        self.assertEqual(node._adapter.calls[0][2], node._workspace_bounds)
+        np.testing.assert_allclose(
+            node._adapter.calls[0][2],
+            (-0.01, 0.11, -0.01, 0.01, 0.49, 0.61),
+            atol=1e-6,
+        )
+        self.assertEqual(
+            node._tf_buffer.calls[0][:3],
+            ("ur_arm_base_link", header.frame_id, header.stamp),
+        )
         self.assertEqual(node._adapter.group.tracker, {"nms": 1, "sort": 1})
         self.assertEqual(len(node._input_publisher.messages), 1)
         self.assertEqual(node._input_publisher.messages[0].header.frame_id, header.frame_id)
         self.assertEqual(node._input_publisher.messages[0].width, 2)
+        self.assertEqual(len(node._workspace_publisher.messages), 1)
+        workspace_cloud = node._workspace_publisher.messages[0]
+        self.assertEqual(workspace_cloud.header.frame_id, "ur_arm_base_link")
+        self.assertEqual(workspace_cloud.header.stamp, header.stamp)
+        self.assertEqual(workspace_cloud.width, 2)
+        workspace_records = list(
+            point_cloud2.read_points(
+                workspace_cloud,
+                field_names=("x", "y", "z", "rgb"),
+                skip_nans=False,
+            )
+        )
+        np.testing.assert_allclose(
+            [record[:3] for record in workspace_records],
+            [[1.0, 2.0, 3.5], [1.0, 2.1, 3.6]],
+            atol=1e-6,
+        )
+        workspace_rgb = np.asarray(
+            [record[3] for record in workspace_records], dtype=np.float32
+        ).view(np.uint32)
+        np.testing.assert_array_equal(workspace_rgb, [0x00FF0000, 0x0000FF00])
         self.assertEqual(len(node._best_publisher.messages), 1)
         pose = node._best_publisher.messages[0]
         self.assertEqual(pose.header.frame_id, header.frame_id)
@@ -241,6 +311,17 @@ class ProcessCloudTest(unittest.TestCase):
             quaternion.x**2 + quaternion.y**2 + quaternion.z**2 + quaternion.w**2
         )
         self.assertAlmostEqual(norm, 1.0)
+        self.assertEqual(len(node._best_base_publisher.messages), 1)
+        base_pose = node._best_base_publisher.messages[0]
+        self.assertEqual(base_pose.header.frame_id, "ur_arm_base_link")
+        self.assertEqual(base_pose.header.stamp, header.stamp)
+        self.assertAlmostEqual(base_pose.pose.position.x, 0.98, places=6)
+        self.assertAlmostEqual(base_pose.pose.position.y, 2.9, places=6)
+        self.assertAlmostEqual(base_pose.pose.position.z, 3.5, places=6)
+        self.assertAlmostEqual(base_pose.pose.orientation.x, 0.5, places=6)
+        self.assertAlmostEqual(base_pose.pose.orientation.y, 0.5, places=6)
+        self.assertAlmostEqual(base_pose.pose.orientation.z, 0.5, places=6)
+        self.assertAlmostEqual(base_pose.pose.orientation.w, 0.5, places=6)
         markers = node._marker_publisher.messages[0].markers
         self.assertEqual(len(markers), 7)
         self.assertEqual(markers[0].action, Marker.DELETEALL)
@@ -264,9 +345,61 @@ class ProcessCloudTest(unittest.TestCase):
         self.assertEqual(empty_cloud.header.frame_id, header.frame_id)
         self.assertEqual(empty_cloud.header.stamp, header.stamp)
         self.assertEqual(empty_cloud.width, 0)
+        self.assertEqual(len(node._workspace_publisher.messages), 1)
+        self.assertEqual(
+            node._workspace_publisher.messages[0].header.frame_id,
+            "ur_arm_base_link",
+        )
+        self.assertEqual(node._workspace_publisher.messages[0].width, 0)
         self.assertEqual(len(node._marker_publisher.messages), 1)
         self.assertEqual(node._marker_publisher.messages[0].markers[0].action, Marker.DELETEALL)
         self.assertEqual(node._best_publisher.messages, [])
+        self.assertEqual(node._best_base_publisher.messages, [])
+
+    def test_workspace_cloud_is_published_before_sor_while_input_uses_sor_result(self):
+        node = make_node()
+        message = SimpleNamespace(
+            header=Header(stamp=rospy.Time(7, 8), frame_id="d405_depth_optical_frame")
+        )
+        points = np.array([[0.0, 0.0, 0.5], [0.1, 0.0, 0.6]], dtype=np.float32)
+        node._cloud_to_arrays = lambda unused: (
+            points,
+            np.array([0x00FF0000, 0x0000FF00], dtype=np.uint32),
+        )
+
+        def keep_first(cloud, unused_neighbors, unused_ratio):
+            return FilteredCloud(
+                points=cloud.points[:1],
+                colors=cloud.colors[:1],
+                raw_count=cloud.raw_count,
+                valid_count=cloud.valid_count,
+                workspace_count=1,
+            )
+
+        node._outlier_filter_enabled = True
+        node._outlier_nb_neighbors = 1
+        node._outlier_std_ratio = 1.0
+        with patch.object(NODE, "remove_statistical_outliers", side_effect=keep_first):
+            node._process_cloud(message)
+
+        self.assertEqual(node._workspace_publisher.messages[0].width, 2)
+        self.assertEqual(node._input_publisher.messages[0].width, 1)
+
+    def test_missing_timestamped_tf_skips_frame_without_parsing_or_inference(self):
+        node = make_node()
+        node._tf_buffer = FakeTfBuffer(error=tf2_ros.ExtrapolationException("too old"))
+        header = Header(stamp=rospy.Time(44, 55), frame_id="d405_depth_optical_frame")
+        message = SimpleNamespace(header=header)
+        node._cloud_to_arrays = Mock(side_effect=AssertionError("cloud must not be parsed"))
+
+        with patch.object(NODE.rospy, "logwarn_throttle") as warning:
+            node._process_cloud(message)
+
+        self.assertEqual(node._adapter.calls, [])
+        self.assertEqual(node._workspace_publisher.messages, [])
+        self.assertEqual(node._input_publisher.messages, [])
+        self.assertEqual(node._best_base_publisher.messages, [])
+        self.assertIn("waiting for TF", warning.call_args.args[1])
 
     def test_process_cloud_logs_all_timing_stages_in_milliseconds(self):
         node = make_node()

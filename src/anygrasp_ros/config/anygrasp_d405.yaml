@@ -1,9 +1,9 @@
-# Workspace coordinates are interpreted in the actual input PointCloud2 frame.
-# The verified live stream currently uses d405_depth_optical_frame.
 cloud_topic: /d405/depth/color/points
 best_grasp_topic: /anygrasp/best_grasp
+best_grasp_base_topic: /anygrasp/best_grasp_base
 marker_topic: /anygrasp/grasp_markers
 input_cloud_topic: /anygrasp/input_cloud
+workspace_cloud_topic: /anygrasp/workspace_cloud
 publish_input_cloud: true
 
 python_executable: /home/jt001/.conda/envs/anygrasp/bin/python
@@ -13,6 +13,10 @@ checkpoint_path: /home/jt001/anygrasp_sdk/grasp_detection/log/checkpoint_detecti
 top_n: 10
 inference_rate: 0.2
 min_workspace_points: 1000
+tf_timeout: 0.2
+# AnyGrasp still receives camera-frame XYZ. Its per-frame camera AABB is
+# expanded by this margin before being passed to the SDK as lims.
+dynamic_lims_margin: 0.01
 
 statistical_outlier_filter:
   enabled: true
@@ -20,12 +24,14 @@ statistical_outlier_filter:
   std_ratio: 2.0
 
 workspace:
-  x_min: -0.28
-  x_max: 0.3
-  y_min: -0.3
-  y_max: 0.03
-  z_min: 0.18
-  z_max: 0.35
+  frame_id: ur_arm_base_link
+
+  x_min: -0.37
+  x_max: 0.21
+  y_min: 0.23
+  y_max: 0.54
+  z_min: 0.22
+  z_max: 0.31
 
 # Keep these aligned with the already validated demo.py invocation and defaults.
 max_gripper_width: 0.1

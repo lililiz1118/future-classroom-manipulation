@@ -38,19 +38,23 @@ RESOURCE_POLICY, PROCESS_RESOURCE_REPORT = initialize_resource_policy(
 
 import numpy as np
 import rospy
+import tf2_ros
 from geometry_msgs.msg import Point, PoseStamped
 from sensor_msgs import point_cloud2
 from sensor_msgs.msg import PointCloud2, PointField
 from std_msgs.msg import ColorRGBA, Header
+from tf.transformations import quaternion_matrix, quaternion_multiply
 from visualization_msgs.msg import Marker, MarkerArray
 
 if SYSTEM_DIST_PACKAGES in sys.path:
     sys.path.remove(SYSTEM_DIST_PACKAGES)
 
 from anygrasp_ros.core import (
-    filter_workspace,
+    dynamic_point_bounds,
     grasp_axes,
     rotation_matrix_to_quaternion,
+    select_workspace,
+    transform_points,
 )
 
 from anygrasp_ros.preprocessing import remove_statistical_outliers
@@ -144,12 +148,12 @@ class AnyGraspAdapter:
         self._dense_grasp = bool(config["dense_grasp"])
         self._collision_detection = bool(config["collision_detection"])
 
-    def infer(self, points, colors, workspace_bounds):
+    def infer(self, points, colors, camera_bounds):
         """把 ROI 内的 Nx3 点和 Nx3 颜色交给 SDK，返回候选抓姿集合。"""
         grasps, _ = self._model.get_grasp(
             points,
             colors,
-            lims=list(workspace_bounds),
+            lims=list(camera_bounds),
             voxel_size=self._voxel_size,
             apply_object_mask=self._apply_object_mask,
             dense_grasp=self._dense_grasp,
@@ -174,8 +178,14 @@ class AnyGraspD405Node:
         # 这些 ``~参数`` 由 launch 文件加载 anygrasp_d405.yaml 后提供。
         self._cloud_topic = rospy.get_param("~cloud_topic", "/d405/depth/color/points")
         self._best_topic = rospy.get_param("~best_grasp_topic", "/anygrasp/best_grasp")
+        self._best_base_topic = rospy.get_param(
+            "~best_grasp_base_topic", "/anygrasp/best_grasp_base"
+        )
         self._marker_topic = rospy.get_param("~marker_topic", "/anygrasp/grasp_markers")
         self._input_cloud_topic = rospy.get_param("~input_cloud_topic", "/anygrasp/input_cloud")
+        self._workspace_cloud_topic = rospy.get_param(
+            "~workspace_cloud_topic", "/anygrasp/workspace_cloud"
+        )
         self._top_n = int(rospy.get_param("~top_n", 10))
         self._inference_rate = float(rospy.get_param("~inference_rate", 1.0))
         self._min_workspace_points = int(rospy.get_param("~min_workspace_points", 1000))
@@ -183,9 +193,9 @@ class AnyGraspD405Node:
         if self._top_n <= 0 or self._inference_rate <= 0.0 or self._min_workspace_points <= 0:
             raise ValueError("top_n, inference_rate, and min_workspace_points must be positive")
 
-        # 顺序必须与 core.filter_workspace() 的 bounds 契约一致：
-        # (x_min, x_max, y_min, y_max, z_min, z_max)，坐标属于输入点云 frame。
+        # ROI 边界始终属于 workspace.frame_id，而不是输入相机 frame。
         workspace = rospy.get_param("~workspace")
+        self._workspace_frame = str(workspace["frame_id"]).strip()
         self._workspace_bounds = (
             float(workspace["x_min"]),
             float(workspace["x_max"]),
@@ -194,6 +204,21 @@ class AnyGraspD405Node:
             float(workspace["z_min"]),
             float(workspace["z_max"]),
         )
+        self._dynamic_lims_margin = float(
+            rospy.get_param("~dynamic_lims_margin", 0.01)
+        )
+        self._tf_timeout = rospy.Duration.from_sec(
+            float(rospy.get_param("~tf_timeout", 0.2))
+        )
+        if not self._workspace_frame:
+            raise ValueError("workspace frame_id must not be empty")
+        x_min, x_max, y_min, y_max, z_min, z_max = self._workspace_bounds
+        if x_min > x_max or y_min > y_max or z_min > z_max:
+            raise ValueError("workspace minimums must not exceed maximums")
+        if self._dynamic_lims_margin <= 0.0:
+            raise ValueError("dynamic_lims_margin must be positive")
+        if self._tf_timeout.to_sec() <= 0.0:
+            raise ValueError("tf_timeout must be positive")
         outlier_config = rospy.get_param(
             "~statistical_outlier_filter",
             {},
@@ -233,6 +258,22 @@ class AnyGraspD405Node:
         )
 
         rospy.loginfo("[AnyGrasp] Python: %s", sys.executable)
+        rospy.loginfo("[AnyGrasp] workspace frame: %s", self._workspace_frame)
+        rospy.loginfo(
+            "[AnyGrasp] workspace x: [%.6f, %.6f]",
+            self._workspace_bounds[0],
+            self._workspace_bounds[1],
+        )
+        rospy.loginfo(
+            "[AnyGrasp] workspace y: [%.6f, %.6f]",
+            self._workspace_bounds[2],
+            self._workspace_bounds[3],
+        )
+        rospy.loginfo(
+            "[AnyGrasp] workspace z: [%.6f, %.6f]",
+            self._workspace_bounds[4],
+            self._workspace_bounds[5],
+        )
         rospy.loginfo("[AnyGrasp] loading model from %s", checkpoint_path)
         self._adapter = AnyGraspAdapter(sdk_dir, checkpoint_path, adapter_config)
         rospy.loginfo("[AnyGrasp] model loaded")
@@ -241,12 +282,20 @@ class AnyGraspD405Node:
         self._best_publisher = rospy.Publisher(
             self._best_topic, PoseStamped, queue_size=1
         )
+        self._best_base_publisher = rospy.Publisher(
+            self._best_base_topic, PoseStamped, queue_size=1
+        )
         self._marker_publisher = rospy.Publisher(
             self._marker_topic, MarkerArray, queue_size=1
         )
         self._input_publisher = rospy.Publisher(
             self._input_cloud_topic, PointCloud2, queue_size=1
         )
+        self._workspace_publisher = rospy.Publisher(
+            self._workspace_cloud_topic, PointCloud2, queue_size=1
+        )
+        self._tf_buffer = tf2_ros.Buffer()
+        self._tf_listener = tf2_ros.TransformListener(self._tf_buffer)
         # ROS 回调只替换最新消息，耗时的解析和推理全部留在主循环中执行。
         self._latest = LatestMessageBuffer()
         self._subscriber = rospy.Subscriber(
@@ -273,7 +322,7 @@ class AnyGraspD405Node:
         - points: ``float32``、形状 ``(N, 3)``；
         - packed_rgb: ``uint32``、形状 ``(N,)``。
 
-        这里只解析完整输入帧；ROI 裁剪发生在后面的 ``filter_workspace``。
+        这里只解析完整输入帧；ROI 裁剪发生在后面的 ``select_workspace``。
         """
         fields = {field.name: field for field in message.fields}
         missing = [name for name in ("x", "y", "z", "rgb") if name not in fields]
@@ -350,19 +399,38 @@ class AnyGraspD405Node:
         return packed.astype(np.uint32, copy=False).view(np.float32)
 
     def _publish_input_cloud(self, filtered, header):
-        """按需发布 ROI 裁剪后的点云，主要用于在 RViz 中检查 ROI。"""
+        """按需发布 SOR 后、相机坐标系下的 AnyGrasp 输入点云。"""
         if not self._publish_input:
             return
+        self._input_publisher.publish(
+            self._create_cloud(filtered.points, filtered.colors, header)
+        )
+
+    def _publish_workspace_cloud(self, selection, source_header):
+        """发布 base-frame ROI 裁剪后、SOR 前的调试点云。"""
+        workspace_header = Header(
+            stamp=source_header.stamp,
+            frame_id=self._workspace_frame,
+        )
+        self._workspace_publisher.publish(
+            self._create_cloud(
+                selection.workspace_points,
+                selection.camera_cloud.colors,
+                workspace_header,
+            )
+        )
+
+    def _create_cloud(self, points, colors, header):
+        """Create one XYZ/RGB PointCloud2 without changing its timestamp/frame."""
         fields = [
             PointField("x", 0, PointField.FLOAT32, 1),
             PointField("y", 4, PointField.FLOAT32, 1),
             PointField("z", 8, PointField.FLOAT32, 1),
             PointField("rgb", 12, PointField.FLOAT32, 1),
         ]
-        packed_rgb = self._pack_colors(filtered.colors)
-        # create_cloud 需要 Python 记录列表；该转换成本较高，所以默认关闭此话题。
-        records = np.column_stack((filtered.points, packed_rgb)).tolist()
-        self._input_publisher.publish(point_cloud2.create_cloud(header, fields, records))
+        packed_rgb = self._pack_colors(colors)
+        records = np.column_stack((points, packed_rgb)).tolist()
+        return point_cloud2.create_cloud(header, fields, records)
 
     @staticmethod
     def _point(values):
@@ -387,11 +455,12 @@ class AnyGraspD405Node:
         """清除 RViz 中上一次发布的全部 AnyGrasp Marker。"""
         self._marker_publisher.publish(MarkerArray(markers=[self._clear_marker(header)]))
 
-    def _publish_grasps(self, grasps, header):
+    def _publish_grasps(self, grasps, header, camera_to_workspace):
         """将已按分数排序的抓姿发布为 RViz Marker 和最佳 PoseStamped。
 
         ``grasps[0]`` 必须是最佳抓姿。Marker 表示抓取中心、接近方向和夹爪开口；
-        PoseStamped 仍处于输入点云的相机坐标系，本函数不做 TF 坐标变换。
+        best_grasp 保持输入点云坐标系，best_grasp_base 使用该点云时间戳对应的
+        camera_to_workspace 同时变换位置和姿态，并沿用原始点云时间戳。
         """
         markers = [self._clear_marker(header)]
         marker_id = 1
@@ -485,6 +554,40 @@ class AnyGraspD405Node:
         pose.pose.orientation.z = float(quaternion[2])
         pose.pose.orientation.w = float(quaternion[3])
         self._best_publisher.publish(pose)
+        transform = camera_to_workspace.transform
+        transform_quaternion = np.array(
+            [
+                transform.rotation.x,
+                transform.rotation.y,
+                transform.rotation.z,
+                transform.rotation.w,
+            ],
+            dtype=np.float64,
+        )
+        rotation = quaternion_matrix(transform_quaternion)[:3, :3]
+        translation = np.array(
+            [
+                transform.translation.x,
+                transform.translation.y,
+                transform.translation.z,
+            ],
+            dtype=np.float64,
+        )
+        base_position = transform_points(
+            np.asarray(best.translation, dtype=np.float32).reshape(1, 3),
+            rotation,
+            translation,
+        )[0]
+        base_quaternion = quaternion_multiply(transform_quaternion, quaternion)
+        base_quaternion /= np.linalg.norm(base_quaternion)
+        base_pose = PoseStamped()
+        base_pose.header = Header(stamp=header.stamp, frame_id=self._workspace_frame)
+        base_pose.pose.position = self._point(base_position)
+        base_pose.pose.orientation.x = float(base_quaternion[0])
+        base_pose.pose.orientation.y = float(base_quaternion[1])
+        base_pose.pose.orientation.z = float(base_quaternion[2])
+        base_pose.pose.orientation.w = float(base_quaternion[3])
+        self._best_base_publisher.publish(base_pose)
 
     def _process_cloud(self, message):
         """处理单帧点云：解析 → ROI 过滤 → 推理 → NMS/排序 → 发布。"""
@@ -507,17 +610,59 @@ class AnyGraspD405Node:
 
         try:
             header = self._header_from_cloud(message)
+            try:
+                camera_to_workspace = self._tf_buffer.lookup_transform(
+                    self._workspace_frame,
+                    header.frame_id,
+                    header.stamp,
+                    self._tf_timeout,
+                )
+            except (
+                tf2_ros.LookupException,
+                tf2_ros.ConnectivityException,
+                tf2_ros.ExtrapolationException,
+            ) as exc:
+                rospy.logwarn_throttle(
+                    5.0,
+                    "[AnyGrasp] waiting for TF: %s <- %s at point-cloud stamp; "
+                    "base-frame workspace filtering is unavailable: %s",
+                    self._workspace_frame,
+                    header.frame_id,
+                    exc,
+                )
+                self._publish_clear_markers(header)
+                return
             # 第一步：解析完整 PointCloud2。此时尚未减少点数。
             points, packed_rgb = measure(
                 "parse", lambda: self._cloud_to_arrays(message)
             )
-            # 第二步：core.py 删除非有限点，并按 YAML 中的 workspace 裁剪 ROI。
-            filtered = measure(
-                "filter",
-                lambda: filter_workspace(
-                    points, packed_rgb, self._workspace_bounds
-                ),
+            # 第二步：用同一帧 TF 做一次 NumPy 向量化 R/t 变换，在 base frame
+            # 计算 ROI mask，并把 mask 应用回原 camera-frame XYZ/RGB。
+            transform = camera_to_workspace.transform
+            quaternion = transform.rotation
+            rotation = quaternion_matrix(
+                [quaternion.x, quaternion.y, quaternion.z, quaternion.w]
+            )[:3, :3]
+            translation = np.array(
+                [
+                    transform.translation.x,
+                    transform.translation.y,
+                    transform.translation.z,
+                ],
+                dtype=np.float64,
             )
+
+            def transform_and_select():
+                workspace_points = transform_points(points, rotation, translation)
+                return select_workspace(
+                    points,
+                    workspace_points,
+                    packed_rgb,
+                    self._workspace_bounds,
+                )
+
+            selection = measure("filter", transform_and_select)
+            filtered = selection.camera_cloud
             rospy.loginfo(
                 "[AnyGrasp] cloud frame: %s | raw points: %d | valid points: %d | workspace points: %d",
                 header.frame_id,
@@ -525,6 +670,9 @@ class AnyGraspD405Node:
                 filtered.valid_count,
                 filtered.workspace_count,
             )
+
+            # workspace_cloud 的定义固定为 base-frame ROI 后、SOR 前。
+            self._publish_workspace_cloud(selection, header)
 
             if getattr(self, "_outlier_filter_enabled", False):
                 before_outlier_filter = filtered.workspace_count
@@ -575,11 +723,16 @@ class AnyGraspD405Node:
                 self._publish_clear_markers(header)
                 return
 
+            # 点数达标后才计算动态 camera-frame lims，避免对空/不足点云求范围。
+            camera_bounds = dynamic_point_bounds(
+                filtered.points,
+                self._dynamic_lims_margin,
+            )
             # 第三步：只有 ROI 内点数达标后，才把点和颜色送入 AnyGrasp SDK。
             grasps = measure(
                 "inference",
                 lambda: self._adapter.infer(
-                    filtered.points, filtered.colors, self._workspace_bounds
+                    filtered.points, filtered.colors, camera_bounds
                 ),
             )
             before_nms = len(grasps)
@@ -599,7 +752,7 @@ class AnyGraspD405Node:
             if len(selected) == 0:
                 self._publish_clear_markers(header)
                 return
-            self._publish_grasps(selected, header)
+            self._publish_grasps(selected, header, camera_to_workspace)
             rospy.loginfo(
                 "[AnyGrasp] grasps before nms: %d | grasps after nms: %d | published grasps: %d | best score: %.6f",
                 before_nms,

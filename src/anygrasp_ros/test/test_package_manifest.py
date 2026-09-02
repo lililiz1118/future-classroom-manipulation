@@ -22,7 +22,15 @@ class PackageManifestTest(unittest.TestCase):
         self.assertEqual(package.name, "anygrasp_ros")
         runtime_dependencies = {dependency.name for dependency in package.exec_depends}
         self.assertTrue(
-            {"rospy", "sensor_msgs", "geometry_msgs", "std_msgs", "visualization_msgs"}
+            {
+                "rospy",
+                "sensor_msgs",
+                "geometry_msgs",
+                "std_msgs",
+                "tf",
+                "tf2_ros",
+                "visualization_msgs",
+            }
             .issubset(runtime_dependencies)
         )
 

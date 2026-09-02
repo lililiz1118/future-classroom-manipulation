@@ -29,6 +29,14 @@ class FilteredCloud:
     workspace_count: int
 
 
+@dataclass(frozen=True)
+class WorkspaceSelection:
+    """Base-frame ROI selection while preserving camera-frame inference data."""
+
+    camera_cloud: FilteredCloud
+    workspace_points: np.ndarray
+
+
 def decode_packed_rgb(values: np.ndarray, datatype: int) -> np.ndarray:
     """把 ROS 打包 RGB 解码为范围 ``[0, 1]`` 的 ``float32 (N, 3)``。"""
     flat = np.asarray(values).reshape(-1)
@@ -46,24 +54,58 @@ def decode_packed_rgb(values: np.ndarray, datatype: int) -> np.ndarray:
     return (colors.astype(np.float32) / np.float32(255.0)).reshape(-1, 3)
 
 
-def filter_workspace(
+def transform_points(
     points: np.ndarray,
-    packed_rgb: np.ndarray,
-    bounds: Sequence[float],
-) -> FilteredCloud:
-    """先删除无效 XYZ，再按六个边界裁剪 ROI，最后只解码保留点的颜色。
-
-    ``bounds`` 顺序是 ``x_min, x_max, y_min, y_max, z_min, z_max``，
-    坐标含义由输入 PointCloud2 的 frame 决定。
-    """
+    rotation: np.ndarray,
+    translation: np.ndarray,
+) -> np.ndarray:
+    """Apply one target-from-source rigid transform to an ``(N, 3)`` array."""
     point_array = np.asarray(points, dtype=np.float32)
-    packed_array = np.asarray(packed_rgb)
+    rotation_array = np.asarray(rotation, dtype=np.float64)
+    translation_array = np.asarray(translation, dtype=np.float64)
     if point_array.ndim != 2 or point_array.shape[1] != 3:
         raise ValueError("points must have shape (N, 3)")
+    if rotation_array.shape != (3, 3):
+        raise ValueError("rotation must have shape (3, 3)")
+    if translation_array.shape != (3,):
+        raise ValueError("translation must have shape (3,)")
+    if not np.isfinite(rotation_array).all() or not np.isfinite(translation_array).all():
+        raise ValueError("rotation and translation must be finite")
+
+    # Row-vector equivalent of p_target = R_target_source * p_source + t.
+    return (point_array @ rotation_array.T + translation_array).astype(
+        np.float32, copy=False
+    )
+
+
+def select_workspace(
+    camera_points: np.ndarray,
+    workspace_points: np.ndarray,
+    packed_rgb: np.ndarray,
+    bounds: Sequence[float],
+) -> WorkspaceSelection:
+    """Build a base-frame ROI mask and apply it to camera XYZ and packed RGB.
+
+    ``bounds`` 顺序是 ``x_min, x_max, y_min, y_max, z_min, z_max``，
+    始终属于 ``workspace_points`` 的坐标系。
+    """
+    camera_array = np.asarray(camera_points, dtype=np.float32)
+    workspace_array = np.asarray(workspace_points, dtype=np.float32)
+    packed_array = np.asarray(packed_rgb)
+    if camera_array.ndim != 2 or camera_array.shape[1] != 3:
+        raise ValueError("camera_points must have shape (N, 3)")
+    if workspace_array.ndim != 2 or workspace_array.shape[1] != 3:
+        raise ValueError("workspace_points must have shape (N, 3)")
     if packed_array.ndim != 1:
         raise ValueError("packed_rgb must have shape (N,)")
-    if point_array.shape[0] != packed_array.shape[0]:
-        raise ValueError("points and packed_rgb must contain the same number of samples")
+    if not (
+        camera_array.shape[0]
+        == workspace_array.shape[0]
+        == packed_array.shape[0]
+    ):
+        raise ValueError(
+            "camera_points, workspace_points, and packed_rgb must contain the same number of samples"
+        )
     if len(bounds) != 6:
         raise ValueError("workspace bounds must be x_min,x_max,y_min,y_max,z_min,z_max")
 
@@ -71,26 +113,58 @@ def filter_workspace(
     if x_min > x_max or y_min > y_max or z_min > z_max:
         raise ValueError("workspace minimums must not exceed maximums")
 
-    # combined_mask 与原始点逐一对应；后续所有条件都在同一个布尔掩码上累积。
-    combined_mask = np.isfinite(point_array).all(axis=1)
+    # combined_mask 与原始 camera XYZ/RGB 逐一对应。
+    combined_mask = np.isfinite(camera_array).all(axis=1)
+    combined_mask &= np.isfinite(workspace_array).all(axis=1)
     valid_count = int(np.count_nonzero(combined_mask))
-    combined_mask &= point_array[:, 0] >= x_min
-    combined_mask &= point_array[:, 0] <= x_max
-    combined_mask &= point_array[:, 1] >= y_min
-    combined_mask &= point_array[:, 1] <= y_max
-    combined_mask &= point_array[:, 2] >= z_min
-    combined_mask &= point_array[:, 2] <= z_max
+    combined_mask &= workspace_array[:, 0] >= x_min
+    combined_mask &= workspace_array[:, 0] <= x_max
+    combined_mask &= workspace_array[:, 1] >= y_min
+    combined_mask &= workspace_array[:, 1] <= y_max
+    combined_mask &= workspace_array[:, 2] >= z_min
+    combined_mask &= workspace_array[:, 2] <= z_max
 
-    # 同一个 mask 同时裁剪 XYZ 和 RGB，保证颜色与点的位置不会错位。
-    workspace_points = point_array[combined_mask].astype(np.float32, copy=False)
+    selected_camera_points = camera_array[combined_mask].astype(np.float32, copy=False)
+    selected_workspace_points = workspace_array[combined_mask].astype(
+        np.float32, copy=False
+    )
     workspace_packed_rgb = packed_array[combined_mask].astype(np.uint32, copy=False)
     workspace_colors = decode_packed_rgb(workspace_packed_rgb, POINT_FIELD_UINT32)
-    return FilteredCloud(
-        points=workspace_points,
+    camera_cloud = FilteredCloud(
+        points=selected_camera_points,
         colors=workspace_colors,
-        raw_count=int(point_array.shape[0]),
+        raw_count=int(camera_array.shape[0]),
         valid_count=valid_count,
-        workspace_count=int(workspace_points.shape[0]),
+        workspace_count=int(selected_camera_points.shape[0]),
+    )
+    return WorkspaceSelection(
+        camera_cloud=camera_cloud,
+        workspace_points=selected_workspace_points,
+    )
+
+
+def dynamic_point_bounds(points: np.ndarray, margin: float) -> Tuple[float, ...]:
+    """Return camera-frame XYZ bounds expanded by ``margin`` on all sides."""
+    point_array = np.asarray(points, dtype=np.float32)
+    margin_value = float(margin)
+    if point_array.ndim != 2 or point_array.shape[1] != 3:
+        raise ValueError("points must have shape (N, 3)")
+    if point_array.shape[0] == 0:
+        raise ValueError("cannot compute bounds for an empty point cloud")
+    if not np.isfinite(point_array).all():
+        raise ValueError("points must be finite")
+    if not np.isfinite(margin_value) or margin_value < 0.0:
+        raise ValueError("margin must be finite and non-negative")
+
+    minimum = point_array.min(axis=0).astype(np.float64) - margin_value
+    maximum = point_array.max(axis=0).astype(np.float64) + margin_value
+    return (
+        float(minimum[0]),
+        float(maximum[0]),
+        float(minimum[1]),
+        float(maximum[1]),
+        float(minimum[2]),
+        float(maximum[2]),
     )
 
 

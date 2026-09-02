@@ -6,11 +6,13 @@ find_package(catkin REQUIRED COMPONENTS
   rospy
   sensor_msgs
   std_msgs
+  tf
+  tf2_ros
   visualization_msgs
 )
 
 catkin_package(
-  CATKIN_DEPENDS geometry_msgs rospy sensor_msgs std_msgs visualization_msgs
+  CATKIN_DEPENDS geometry_msgs rospy sensor_msgs std_msgs tf tf2_ros visualization_msgs
 )
 
 install(PROGRAMS

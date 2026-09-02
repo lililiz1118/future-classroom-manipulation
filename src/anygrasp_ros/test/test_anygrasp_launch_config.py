@@ -17,6 +17,13 @@ class AnyGraspConfigurationTest(unittest.TestCase):
         config = yaml.safe_load(CONFIG_PATH.read_text(encoding="utf-8"))
 
         self.assertEqual(config["cloud_topic"], "/d405/depth/color/points")
+        self.assertEqual(config["best_grasp_topic"], "/anygrasp/best_grasp")
+        self.assertEqual(
+            config["best_grasp_base_topic"], "/anygrasp/best_grasp_base"
+        )
+        self.assertEqual(
+            config["workspace_cloud_topic"], "/anygrasp/workspace_cloud"
+        )
         self.assertEqual(config["sdk_dir"], "/home/jt001/anygrasp_sdk/grasp_detection")
         self.assertEqual(
             config["checkpoint_path"],
@@ -30,6 +37,8 @@ class AnyGraspConfigurationTest(unittest.TestCase):
         self.assertFalse(config["dense_grasp"])
         self.assertEqual(config["voxel_size"], 0.005)
         self.assertEqual(config["min_workspace_points"], 1000)
+        self.assertEqual(config["dynamic_lims_margin"], 0.01)
+        self.assertEqual(config["tf_timeout"], 0.2)
         self.assertEqual(
             config["statistical_outlier_filter"],
             {
@@ -41,12 +50,13 @@ class AnyGraspConfigurationTest(unittest.TestCase):
         self.assertEqual(
             config["workspace"],
             {
-                "x_min": -0.28,
-                "x_max": 0.3,
-                "y_min": -0.3,
-                "y_max": 0.03,
-                "z_min": 0.18,
-                "z_max": 0.35,
+                "frame_id": "ur_arm_base_link",
+                "x_min": 0.0,
+                "x_max": 0.0,
+                "y_min": 0.0,
+                "y_max": 0.0,
+                "z_min": 0.0,
+                "z_max": 0.0,
             },
         )
 
