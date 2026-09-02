@@ -121,4 +121,22 @@ MoveIt 执行前的关节状态时序竞争。
 
 在启动终端按 Ctrl+C 后，启动器会先撤销运动执行能力，再停止其管理的 UR Driver、AG95、D405 和 RViz 进程。关闭 RViz 也会结束本次控制链。默认不自动给 UR3 断电，且不会停止复用的外部 D405 或任何其他外部节点。
 
+如果误关了仍在运行节点的终端，可在任意新终端使用独立停止工具：
+
+```bash
+robot-stop status       # 只读检查 AnyGrasp、UR3 控制链和机器人模式
+robot-stop anygrasp     # 只停止 AnyGrasp，不影响 UR3 控制链
+robot-stop ur3          # 只停止 UR3 控制链，不停止 AnyGrasp
+```
+
+`robot-stop ur3` 会先停止 RViz 和 MoveIt 执行能力，再通过 Dashboard 停止控制程序并让机械臂进入 `POWER_OFF`，随后依次退出 D405、AG95、UR Driver 和启动监督进程。只有命令明确显示下面三行时，才可以按机械臂控制柜的关闭按钮：
+
+```text
+UR3 control chain: STOPPED
+UR robot mode: POWER_OFF
+可以按机械臂控制柜的关闭按钮。
+```
+
+该命令不会停止 AnyGrasp；输出会另外显示 AnyGrasp 当前是否运行。所有三个子命令均可从新终端重复执行。若 Dashboard 或任一软件组件未能确认关闭，命令返回非零状态，并明确提示不要按控制柜关闭按钮。
+
 如果启动器报告已有 `/servo_server`、`/keyboard_jog`、`/move_group`、`/ur/ur_hardware_interface`、`/dh_gripper_driver`、`/gripper_joint_state_relay` 或 `/joint_state_aggregator`，先停止旧控制入口再重试；不要绕过并发检查。

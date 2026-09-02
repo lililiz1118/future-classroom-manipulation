@@ -158,6 +158,7 @@ install(DIRECTORY config launch scripts
   DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION})
 
 install(PROGRAMS
+  scripts/robot_stop.py
   scripts/ur3_headless_moveit.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
@@ -216,4 +217,5 @@ if(CATKIN_ENABLE_TESTING)
   catkin_add_nosetests(test/test_control_chain_health.py)
   catkin_add_nosetests(test/test_control_chain_monitor.py)
   catkin_add_nosetests(test/test_freedrive_camera.py)
+  catkin_add_nosetests(test/test_robot_stop.py)
 endif()
