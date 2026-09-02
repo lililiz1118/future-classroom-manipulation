@@ -151,8 +151,9 @@
       <arg name="ordered_pc"               value="$(arg ordered_pc)"/>  
     </include>
 
-    <node pkg="tf" type="static_transform_publisher" name="d405_to_plate" 
-      args="0 0 0 0 0 0 /camera_1_screw_virtual_link /$(arg tf_prefix)_link 100" 
-      if="1"/>
+    <node pkg="tf"
+      type="static_transform_publisher"
+      name="d405_to_plate"
+      args="-0.003943739920 -0.083350543984 0.031333024868 0.428250553733 -0.459144593181 0.555730421590 0.544932476826 ur_arm_wrist_3_link /$(arg tf_prefix)_link 100" />
   </group>
 </launch>
