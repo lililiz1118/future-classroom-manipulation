@@ -47,6 +47,14 @@ TRACER_WS="$PWD" ./ur3_moveit_headless.sh --preflight-only
 TRACER_WS="$PWD" ./ur3_moveit_headless.sh --no-d405
 ```
 
+仅诊断 UR Driver 控制链（不启动 AG95、D405、MoveIt 或 RViz）时：
+
+```bash
+TRACER_WS="$PWD" ./ur3_moveit_headless.sh --driver-only
+```
+
+`--driver-only` 仍要求人工输入 `START`，并会让 UR3 上电、松闸；它只省略其他组件，不是只读模式。只读检查仍应使用 `--preflight-only`。
+
 需要在已确认的低风险场景中把速度上限设为 10% 时：
 
 ```bash
@@ -124,12 +132,12 @@ MoveIt 执行前的关节状态时序竞争。
 如果误关了仍在运行节点的终端，可在任意新终端使用独立停止工具：
 
 ```bash
-robot-stop status       # 只读检查 AnyGrasp、UR3 控制链和机器人模式
-robot-stop anygrasp     # 只停止 AnyGrasp，不影响 UR3 控制链
-robot-stop ur3          # 只停止 UR3 控制链，不停止 AnyGrasp
+./src/tracer/tracer_ros/tracer_bringup/scripts/robot_stop.sh status
+./src/tracer/tracer_ros/tracer_bringup/scripts/robot_stop.sh anygrasp
+./src/tracer/tracer_ros/tracer_bringup/scripts/robot_stop.sh ur3
 ```
 
-`robot-stop ur3` 会先停止 RViz 和 MoveIt 执行能力，再通过 Dashboard 停止控制程序并让机械臂进入 `POWER_OFF`，随后依次退出 D405、AG95、UR Driver 和启动监督进程。只有命令明确显示下面三行时，才可以按机械臂控制柜的关闭按钮：
+三个子命令依次用于只读检查、只停止 AnyGrasp（不影响 UR3）、只停止 UR3 控制链（不停止 AnyGrasp）。`robot_stop.sh ur3` 会先停止 RViz 和 MoveIt 执行能力，再通过 Dashboard 停止控制程序并让机械臂进入 `POWER_OFF`，随后依次退出 D405、AG95、UR Driver 和启动监督进程。只有命令明确显示下面三行时，才可以按机械臂控制柜的关闭按钮：
 
 ```text
 UR3 control chain: STOPPED

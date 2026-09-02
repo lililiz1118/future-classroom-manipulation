@@ -1,6 +1,6 @@
 # AnyGrasp D405 ROS 节点
 
-`anygrasp_ros` 是独立启动的感知节点：读取 `/d405/depth/color/points`，在相机坐标系内运行 AnyGrasp，并发布最佳抓取、MarkerArray 和可选过滤点云。它不启动 MoveIt、UR 控制器或夹爪，也不会发送运动命令。
+`anygrasp_ros` 是独立启动的感知节点：读取 `/d405/depth/color/points`，按点云时间戳查询 D405 到 `ur_arm_base_link` 的 TF，在机械臂基座坐标系中裁剪工作空间，同时保留相机坐标系点云供 AnyGrasp 推理。它不启动 MoveIt、UR 控制器或夹爪，也不会发送运动命令。
 
 ## 启动
 
@@ -12,6 +12,16 @@ source /opt/ros/noetic/setup.bash
 source devel/setup.bash
 roslaunch anygrasp_ros anygrasp_d405.launch
 ```
+
+主要输出：
+
+- `/anygrasp/best_grasp`：输入相机坐标系下的最佳抓姿；
+- `/anygrasp/best_grasp_base`：同一抓姿变换到 `ur_arm_base_link` 后的结果；
+- `/anygrasp/workspace_cloud`：机械臂基座坐标系下、ROI 后且统计离群点过滤前的点云；
+- `/anygrasp/input_cloud`：实际送入 AnyGrasp 的相机坐标系点云；
+- `/anygrasp/grasp_markers`：候选抓姿的 RViz `MarkerArray`。
+
+若点云时间戳对应的 TF 不可用，节点会跳过该帧，不会退回到相机坐标系 ROI。当前 ROI 位于 `ur_arm_base_link`，边界和话题名统一配置在 `config/anygrasp_d405.yaml`。
 
 模型、点云、ROI 和推理参数位于 `config/anygrasp_d405.yaml`。CPU 资源只在
 `config/anygrasp_resources.yaml` 中配置，当前 generic 内核的保守值为：
