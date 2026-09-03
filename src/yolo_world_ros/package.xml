@@ -1,0 +1,24 @@
+<?xml version="1.0"?>
+<package format="2">
+  <name>yolo_world_ros</name>
+  <version>0.1.0</version>
+  <description>Timestamp-safe YOLO-World bbox to D405 target-cloud projection.</description>
+
+  <maintainer email="lililiz1118@users.noreply.github.com">lililiz1118</maintainer>
+  <license>MIT</license>
+
+  <buildtool_depend>catkin</buildtool_depend>
+
+  <depend>anygrasp_ros</depend>
+  <depend>rospy</depend>
+  <depend>sensor_msgs</depend>
+  <depend>std_msgs</depend>
+  <depend>tf</depend>
+  <depend>tf2_ros</depend>
+
+  <exec_depend>python3-numpy</exec_depend>
+  <exec_depend>rospkg</exec_depend>
+  <test_depend>rostest</test_depend>
+
+  <export/>
+</package>

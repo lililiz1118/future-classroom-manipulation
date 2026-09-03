@@ -1,0 +1,24 @@
+cloud_topic: /d405/depth/color/points
+camera_info_topic: /d405/color/camera_info
+detection_topic: /yolo_world/target_detection
+target_cloud_topic: /yolo_world/target_cloud
+
+color_frame: d405_color_optical_frame
+
+# Raw PointCloud2 messages are retained by acquisition time, not frame count.
+# One second covers the measured YOLO inference delay with scheduling margin.
+cloud_cache_duration_sec: 1.0
+
+# Independent time checks:
+# - stamp delta decides whether detection/cloud belong to one acquisition instant;
+# - detection age rejects stale input before any expensive work. The same
+#   bounded interval clears a published cloud after target activity stops;
+#   successful publication refreshes that watchdog so processing latency does
+#   not cause RViz flicker.
+max_stamp_delta_sec: 0.02
+max_detection_age_sec: 0.5
+
+tf_timeout_sec: 0.2
+stale_check_period_sec: 0.1
+require_ransac_success: true
+log_throttle_sec: 1.0

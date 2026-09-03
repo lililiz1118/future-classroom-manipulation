@@ -1,0 +1,21 @@
+<launch>
+  <arg name="geometry_config_file"
+       default="$(find anygrasp_ros)/config/anygrasp_d405.yaml"/>
+  <arg name="config_file"
+       default="$(find yolo_world_ros)/config/yolo_target_cloud.yaml"/>
+  <arg name="python_executable"
+       default="/home/jt001/.conda/envs/anygrasp/bin/python"/>
+
+  <!-- Debug perception only: no AnyGrasp model, MoveIt, arm, or gripper node. -->
+  <node pkg="yolo_world_ros"
+        type="yolo_target_cloud_node.py"
+        name="yolo_target_cloud_node"
+        output="screen"
+        required="true"
+        launch-prefix="$(arg python_executable)">
+    <!-- Single source of truth for the validated workspace and RANSAC values. -->
+    <rosparam command="load" file="$(arg geometry_config_file)"/>
+    <rosparam command="load" file="$(arg config_file)"/>
+    <param name="python_executable" value="$(arg python_executable)"/>
+  </node>
+</launch>
