@@ -4,6 +4,7 @@ best_grasp_base_topic: /anygrasp/best_grasp_base
 marker_topic: /anygrasp/grasp_markers
 input_cloud_topic: /anygrasp/input_cloud
 workspace_cloud_topic: /anygrasp/workspace_cloud
+object_cloud_topic: /anygrasp/object_cloud
 publish_input_cloud: true
 
 python_executable: /home/jt001/.conda/envs/anygrasp/bin/python
@@ -22,6 +23,21 @@ statistical_outlier_filter:
   enabled: true
   nb_neighbors: 20
   std_ratio: 2.0
+
+# Single-pass table removal between the base-frame ROI and the existing SOR.
+# The 0.20-0.28 m table-height window is only a temporary initial estimate.
+# Tune it from the logged candidate height and /anygrasp/workspace_cloud data.
+ransac_enabled: true
+ransac_distance_threshold: 0.008
+ransac_n: 3
+ransac_num_iterations: 1000
+ransac_min_points: 1000
+ransac_max_normal_angle_deg: 15.0
+ransac_table_height_min: 0.20
+ransac_table_height_max: 0.28
+ransac_min_inliers: 500
+ransac_min_inlier_ratio: 0.20
+ransac_min_object_points: 1000
 
 workspace:
   frame_id: ur_arm_base_link

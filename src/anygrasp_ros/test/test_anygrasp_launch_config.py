@@ -24,6 +24,7 @@ class AnyGraspConfigurationTest(unittest.TestCase):
         self.assertEqual(
             config["workspace_cloud_topic"], "/anygrasp/workspace_cloud"
         )
+        self.assertEqual(config["object_cloud_topic"], "/anygrasp/object_cloud")
         self.assertEqual(config["sdk_dir"], "/home/jt001/anygrasp_sdk/grasp_detection")
         self.assertEqual(
             config["checkpoint_path"],
@@ -40,6 +41,37 @@ class AnyGraspConfigurationTest(unittest.TestCase):
         self.assertEqual(config["dynamic_lims_margin"], 0.01)
         self.assertEqual(config["tf_timeout"], 0.2)
         self.assertEqual(
+            {
+                key: config[key]
+                for key in (
+                    "ransac_enabled",
+                    "ransac_distance_threshold",
+                    "ransac_n",
+                    "ransac_num_iterations",
+                    "ransac_min_points",
+                    "ransac_max_normal_angle_deg",
+                    "ransac_table_height_min",
+                    "ransac_table_height_max",
+                    "ransac_min_inliers",
+                    "ransac_min_inlier_ratio",
+                    "ransac_min_object_points",
+                )
+            },
+            {
+                "ransac_enabled": True,
+                "ransac_distance_threshold": 0.008,
+                "ransac_n": 3,
+                "ransac_num_iterations": 1000,
+                "ransac_min_points": 1000,
+                "ransac_max_normal_angle_deg": 15.0,
+                "ransac_table_height_min": 0.20,
+                "ransac_table_height_max": 0.28,
+                "ransac_min_inliers": 500,
+                "ransac_min_inlier_ratio": 0.20,
+                "ransac_min_object_points": 1000,
+            },
+        )
+        self.assertEqual(
             config["statistical_outlier_filter"],
             {
                 "enabled": True,
@@ -51,12 +83,12 @@ class AnyGraspConfigurationTest(unittest.TestCase):
             config["workspace"],
             {
                 "frame_id": "ur_arm_base_link",
-                "x_min": 0.0,
-                "x_max": 0.0,
-                "y_min": 0.0,
-                "y_max": 0.0,
-                "z_min": 0.0,
-                "z_max": 0.0,
+                "x_min": -0.37,
+                "x_max": 0.21,
+                "y_min": 0.23,
+                "y_max": 0.54,
+                "z_min": 0.22,
+                "z_max": 0.31,
             },
         )
 

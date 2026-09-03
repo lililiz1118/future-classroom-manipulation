@@ -9,6 +9,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 import numpy as np
+import yaml
 
 
 ROS_PYTHON = "/opt/ros/noetic/lib/python3/dist-packages"
@@ -28,11 +29,16 @@ from visualization_msgs.msg import Marker  # noqa: E402
 
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
+CONFIG_PATH = PACKAGE_ROOT / "config" / "anygrasp_d405.yaml"
 NODE_PATH = PACKAGE_ROOT / "scripts" / "anygrasp_d405_node.py"
 SPEC = importlib.util.spec_from_file_location("anygrasp_d405_node_under_test", NODE_PATH)
 NODE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(NODE)
 from anygrasp_ros.core import FilteredCloud  # noqa: E402
+from anygrasp_ros.preprocessing import (  # noqa: E402
+    PlaneRemovalResult,
+    RansacPlaneConfig,
+)
 
 
 class CapturePublisher:
@@ -122,12 +128,26 @@ def make_node(scores=(0.2, 0.9, 0.5)):
     node._tf_timeout = rospy.Duration.from_sec(0.2)
     node._tf_buffer = FakeTfBuffer(make_transform())
     node._min_workspace_points = 1
+    node._ransac_config = RansacPlaneConfig(
+        enabled=False,
+        distance_threshold=0.008,
+        ransac_n=3,
+        num_iterations=1000,
+        min_points=3,
+        max_normal_angle_deg=15.0,
+        table_height_min=0.20,
+        table_height_max=0.28,
+        min_inliers=3,
+        min_inlier_ratio=0.20,
+        min_object_points=1,
+    )
     node._top_n = 2
     node._publish_input = True
     node._inference_rate = 1.0
     node._marker_lifetime = rospy.Duration.from_sec(2.5)
     node._input_publisher = CapturePublisher()
     node._workspace_publisher = CapturePublisher()
+    node._object_publisher = CapturePublisher()
     node._marker_publisher = CapturePublisher()
     node._best_publisher = CapturePublisher()
     node._best_base_publisher = CapturePublisher()
@@ -252,6 +272,44 @@ class NodeDefaultsTest(unittest.TestCase):
 
         self.assertFalse(node._publish_input)
 
+    def test_ransac_parameters_are_loaded_from_checked_in_yaml(self):
+        config = yaml.safe_load(CONFIG_PATH.read_text(encoding="utf-8"))
+
+        def get_param(name, *default):
+            key = name.removeprefix("~")
+            if key in config:
+                return config[key]
+            if default:
+                return default[0]
+            raise KeyError(name)
+
+        with patch.object(NODE.rospy, "init_node"), patch.object(
+            NODE.rospy, "get_param", side_effect=get_param
+        ), patch.object(NODE, "AnyGraspAdapter"), patch.object(
+            NODE.rospy, "Publisher", return_value=CapturePublisher()
+        ), patch.object(NODE.rospy, "Subscriber"), patch.object(
+            NODE.tf2_ros, "Buffer", return_value=FakeTfBuffer(make_transform())
+        ), patch.object(NODE.tf2_ros, "TransformListener"):
+            node = NODE.AnyGraspD405Node()
+
+        self.assertEqual(node._object_cloud_topic, "/anygrasp/object_cloud")
+        self.assertEqual(
+            node._ransac_config,
+            RansacPlaneConfig(
+                enabled=True,
+                distance_threshold=0.008,
+                ransac_n=3,
+                num_iterations=1000,
+                min_points=1000,
+                max_normal_angle_deg=15.0,
+                table_height_min=0.20,
+                table_height_max=0.28,
+                min_inliers=500,
+                min_inlier_ratio=0.20,
+                min_object_points=1000,
+            ),
+        )
+
 
 class ProcessCloudTest(unittest.TestCase):
     def test_process_cloud_runs_nms_sort_top_n_and_preserves_header(self):
@@ -301,6 +359,11 @@ class ProcessCloudTest(unittest.TestCase):
             [record[3] for record in workspace_records], dtype=np.float32
         ).view(np.uint32)
         np.testing.assert_array_equal(workspace_rgb, [0x00FF0000, 0x0000FF00])
+        self.assertEqual(len(node._object_publisher.messages), 1)
+        object_cloud = node._object_publisher.messages[0]
+        self.assertEqual(object_cloud.header.frame_id, "ur_arm_base_link")
+        self.assertEqual(object_cloud.header.stamp, header.stamp)
+        self.assertEqual(object_cloud.width, 2)
         self.assertEqual(len(node._best_publisher.messages), 1)
         pose = node._best_publisher.messages[0]
         self.assertEqual(pose.header.frame_id, header.frame_id)
@@ -351,21 +414,77 @@ class ProcessCloudTest(unittest.TestCase):
             "ur_arm_base_link",
         )
         self.assertEqual(node._workspace_publisher.messages[0].width, 0)
+        self.assertEqual(len(node._object_publisher.messages), 1)
+        self.assertEqual(node._object_publisher.messages[0].width, 0)
         self.assertEqual(len(node._marker_publisher.messages), 1)
         self.assertEqual(node._marker_publisher.messages[0].markers[0].action, Marker.DELETEALL)
         self.assertEqual(node._best_publisher.messages, [])
         self.assertEqual(node._best_base_publisher.messages, [])
 
-    def test_workspace_cloud_is_published_before_sor_while_input_uses_sor_result(self):
+    def test_ransac_fallback_publishes_original_roi_and_continues_inference(self):
         node = make_node()
-        message = SimpleNamespace(
-            header=Header(stamp=rospy.Time(7, 8), frame_id="d405_depth_optical_frame")
+        node._ransac_config = RansacPlaneConfig(
+            enabled=True,
+            distance_threshold=0.008,
+            ransac_n=3,
+            num_iterations=100,
+            min_points=3,
+            max_normal_angle_deg=15.0,
+            table_height_min=0.20,
+            table_height_max=0.28,
+            min_inliers=3,
+            min_inlier_ratio=0.20,
+            min_object_points=1,
         )
         points = np.array([[0.0, 0.0, 0.5], [0.1, 0.0, 0.6]], dtype=np.float32)
+        message = SimpleNamespace(
+            header=Header(stamp=rospy.Time(22, 33), frame_id="d405_depth_optical_frame")
+        )
         node._cloud_to_arrays = lambda unused: (
             points,
             np.array([0x00FF0000, 0x0000FF00], dtype=np.uint32),
         )
+
+        with patch.object(NODE.rospy, "logwarn_throttle") as warning:
+            node._process_cloud(message)
+
+        self.assertEqual(node._object_publisher.messages[0].width, 2)
+        self.assertEqual(node._input_publisher.messages[0].width, 2)
+        np.testing.assert_array_equal(node._adapter.calls[0][0], points)
+        self.assertIn("fallback", warning.call_args.args[1])
+
+    def test_workspace_object_and_input_clouds_show_roi_ransac_and_sor_stages(self):
+        node = make_node()
+        message = SimpleNamespace(
+            header=Header(stamp=rospy.Time(7, 8), frame_id="d405_depth_optical_frame")
+        )
+        points = np.array(
+            [[0.0, 0.0, 0.5], [0.1, 0.0, 0.6], [0.2, 0.0, 0.7]],
+            dtype=np.float32,
+        )
+        node._cloud_to_arrays = lambda unused: (
+            points,
+            np.array([0x00FF0000, 0x0000FF00, 0x000000FF], dtype=np.uint32),
+        )
+
+        def keep_two_after_ransac(cloud, workspace_points, unused_config):
+            return PlaneRemovalResult(
+                camera_cloud=FilteredCloud(
+                    points=cloud.points[:2],
+                    colors=cloud.colors[:2],
+                    raw_count=cloud.raw_count,
+                    valid_count=cloud.valid_count,
+                    workspace_count=2,
+                ),
+                workspace_points=workspace_points[:2],
+                applied=True,
+                reason="accepted",
+                plane_model=(0.0, 0.0, -1.0, 0.24),
+                inlier_count=1,
+                inlier_ratio=1.0 / 3.0,
+                table_height=0.24,
+                normal_angle_deg=0.0,
+            )
 
         def keep_first(cloud, unused_neighbors, unused_ratio):
             return FilteredCloud(
@@ -379,10 +498,13 @@ class ProcessCloudTest(unittest.TestCase):
         node._outlier_filter_enabled = True
         node._outlier_nb_neighbors = 1
         node._outlier_std_ratio = 1.0
-        with patch.object(NODE, "remove_statistical_outliers", side_effect=keep_first):
+        with patch.object(
+            NODE, "remove_table_plane", side_effect=keep_two_after_ransac
+        ), patch.object(NODE, "remove_statistical_outliers", side_effect=keep_first):
             node._process_cloud(message)
 
-        self.assertEqual(node._workspace_publisher.messages[0].width, 2)
+        self.assertEqual(node._workspace_publisher.messages[0].width, 3)
+        self.assertEqual(node._object_publisher.messages[0].width, 2)
         self.assertEqual(node._input_publisher.messages[0].width, 1)
 
     def test_missing_timestamped_tf_skips_frame_without_parsing_or_inference(self):
@@ -397,6 +519,7 @@ class ProcessCloudTest(unittest.TestCase):
 
         self.assertEqual(node._adapter.calls, [])
         self.assertEqual(node._workspace_publisher.messages, [])
+        self.assertEqual(node._object_publisher.messages, [])
         self.assertEqual(node._input_publisher.messages, [])
         self.assertEqual(node._best_base_publisher.messages, [])
         self.assertIn("waiting for TF", warning.call_args.args[1])
@@ -424,6 +547,8 @@ class ProcessCloudTest(unittest.TestCase):
         for label in (
             "PointCloud2 parse",
             "finite+workspace filter",
+            "RANSAC table filter",
+            "RViz object publish",
             "RViz input publish",
             "AnyGrasp inference",
             "NMS+sort",
@@ -440,7 +565,22 @@ class ProcessCloudTest(unittest.TestCase):
         )
         node._adapter.infer = Mock(side_effect=RuntimeError("inference failed"))
         clock_values = iter(
-            [0.0, 1.0, 1.001, 2.0, 2.001, 3.0, 3.001, 4.0, 4.010, 5.0]
+            [
+                0.0,
+                1.0,
+                1.001,
+                2.0,
+                2.001,
+                3.0,
+                3.002,
+                4.0,
+                4.001,
+                5.0,
+                5.001,
+                6.0,
+                6.010,
+                7.0,
+            ]
         )
 
         with patch.object(NODE.time, "perf_counter", side_effect=clock_values), patch.object(
@@ -455,7 +595,7 @@ class ProcessCloudTest(unittest.TestCase):
             if call.args and "timing ms" in call.args[0]
         ]
         self.assertEqual(len(timing_calls), 1)
-        self.assertAlmostEqual(timing_calls[0].args[4], 10.0)
+        self.assertAlmostEqual(timing_calls[0].args[6], 10.0)
 
 
 class BackendFailureClassificationTest(unittest.TestCase):

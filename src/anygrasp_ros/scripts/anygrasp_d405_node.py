@@ -57,7 +57,11 @@ from anygrasp_ros.core import (
     transform_points,
 )
 
-from anygrasp_ros.preprocessing import remove_statistical_outliers
+from anygrasp_ros.preprocessing import (
+    RansacPlaneConfig,
+    remove_statistical_outliers,
+    remove_table_plane,
+)
 
 
 EXPECTED_PYTHON = "/home/jt001/.conda/envs/anygrasp/bin/python"
@@ -186,6 +190,9 @@ class AnyGraspD405Node:
         self._workspace_cloud_topic = rospy.get_param(
             "~workspace_cloud_topic", "/anygrasp/workspace_cloud"
         )
+        self._object_cloud_topic = rospy.get_param(
+            "~object_cloud_topic", "/anygrasp/object_cloud"
+        )
         self._top_n = int(rospy.get_param("~top_n", 10))
         self._inference_rate = float(rospy.get_param("~inference_rate", 1.0))
         self._min_workspace_points = int(rospy.get_param("~min_workspace_points", 1000))
@@ -238,6 +245,34 @@ class AnyGraspD405Node:
         if self._outlier_std_ratio <= 0.0:
             raise ValueError("outlier std_ratio must be positive")
 
+        # ur_arm_base_link follows REP-103, so its Z axis is vertical.  The
+        # normal-angle check itself handles the plane normal's +/- ambiguity.
+        self._ransac_config = RansacPlaneConfig(
+            enabled=bool(rospy.get_param("~ransac_enabled", True)),
+            distance_threshold=float(
+                rospy.get_param("~ransac_distance_threshold", 0.008)
+            ),
+            ransac_n=int(rospy.get_param("~ransac_n", 3)),
+            num_iterations=int(rospy.get_param("~ransac_num_iterations", 1000)),
+            min_points=int(rospy.get_param("~ransac_min_points", 1000)),
+            max_normal_angle_deg=float(
+                rospy.get_param("~ransac_max_normal_angle_deg", 15.0)
+            ),
+            table_height_min=float(
+                rospy.get_param("~ransac_table_height_min", 0.20)
+            ),
+            table_height_max=float(
+                rospy.get_param("~ransac_table_height_max", 0.28)
+            ),
+            min_inliers=int(rospy.get_param("~ransac_min_inliers", 500)),
+            min_inlier_ratio=float(
+                rospy.get_param("~ransac_min_inlier_ratio", 0.20)
+            ),
+            min_object_points=int(
+                rospy.get_param("~ransac_min_object_points", 1000)
+            ),
+        )
+
         # 这组参数会原样进入 AnyGraspAdapter，最终控制 SDK 的抓姿生成方式。
         adapter_config = {
             "max_gripper_width": rospy.get_param("~max_gripper_width", 0.1),
@@ -274,6 +309,15 @@ class AnyGraspD405Node:
             self._workspace_bounds[4],
             self._workspace_bounds[5],
         )
+        rospy.loginfo(
+            "[AnyGrasp] RANSAC table filter | enabled: %s | distance: %.4f m | "
+            "normal angle: %.1f deg | temporary table height: [%.3f, %.3f] m",
+            self._ransac_config.enabled,
+            self._ransac_config.distance_threshold,
+            self._ransac_config.max_normal_angle_deg,
+            self._ransac_config.table_height_min,
+            self._ransac_config.table_height_max,
+        )
         rospy.loginfo("[AnyGrasp] loading model from %s", checkpoint_path)
         self._adapter = AnyGraspAdapter(sdk_dir, checkpoint_path, adapter_config)
         rospy.loginfo("[AnyGrasp] model loaded")
@@ -293,6 +337,9 @@ class AnyGraspD405Node:
         )
         self._workspace_publisher = rospy.Publisher(
             self._workspace_cloud_topic, PointCloud2, queue_size=1
+        )
+        self._object_publisher = rospy.Publisher(
+            self._object_cloud_topic, PointCloud2, queue_size=1
         )
         self._tf_buffer = tf2_ros.Buffer()
         self._tf_listener = tf2_ros.TransformListener(self._tf_buffer)
@@ -407,7 +454,7 @@ class AnyGraspD405Node:
         )
 
     def _publish_workspace_cloud(self, selection, source_header):
-        """发布 base-frame ROI 裁剪后、SOR 前的调试点云。"""
+        """发布 base-frame ROI 后、RANSAC 前的调试点云。"""
         workspace_header = Header(
             stamp=source_header.stamp,
             frame_id=self._workspace_frame,
@@ -416,6 +463,23 @@ class AnyGraspD405Node:
             self._create_cloud(
                 selection.workspace_points,
                 selection.camera_cloud.colors,
+                workspace_header,
+            )
+        )
+
+    def _publish_object_cloud(self, result, source_header):
+        """发布 base-frame RANSAC 后、SOR 前的调试点云。
+
+        RANSAC disabled 或 fallback 时 result 包含原 ROI，因此该话题仍连续发布。
+        """
+        workspace_header = Header(
+            stamp=source_header.stamp,
+            frame_id=self._workspace_frame,
+        )
+        self._object_publisher.publish(
+            self._create_cloud(
+                result.workspace_points,
+                result.camera_cloud.colors,
                 workspace_header,
             )
         )
@@ -590,11 +654,13 @@ class AnyGraspD405Node:
         self._best_base_publisher.publish(base_pose)
 
     def _process_cloud(self, message):
-        """处理单帧点云：解析 → ROI 过滤 → 推理 → NMS/排序 → 发布。"""
+        """处理单帧点云：解析 → ROI → RANSAC → SOR → 推理 → 发布。"""
         total_started = time.perf_counter()
         timing_ms = {
             "parse": 0.0,
             "filter": 0.0,
+            "ransac": 0.0,
+            "object_publish": 0.0,
             "input_publish": 0.0,
             "inference": 0.0,
             "nms_sort": 0.0,
@@ -671,8 +737,53 @@ class AnyGraspD405Node:
                 filtered.workspace_count,
             )
 
-            # workspace_cloud 的定义固定为 base-frame ROI 后、SOR 前。
+            # workspace_cloud 的定义固定为 base-frame ROI 后、RANSAC 前。
             self._publish_workspace_cloud(selection, header)
+
+            plane_result = measure(
+                "ransac",
+                lambda: remove_table_plane(
+                    filtered,
+                    selection.workspace_points,
+                    self._ransac_config,
+                ),
+            )
+            plane_text = (
+                "none"
+                if plane_result.plane_model is None
+                else " ".join("%.6f" % value for value in plane_result.plane_model)
+            )
+            height_text = (
+                "n/a"
+                if plane_result.table_height is None
+                else "%.6f m" % plane_result.table_height
+            )
+            rospy.loginfo(
+                "[AnyGrasp] ROI points: %d | RANSAC plane: %s | "
+                "candidate table height: %s | Plane inliers: %d | "
+                "Plane ratio: %.2f%% | Object points after plane removal: %d | "
+                "applied: %s",
+                filtered.workspace_count,
+                plane_text,
+                height_text,
+                plane_result.inlier_count,
+                plane_result.inlier_ratio * 100.0,
+                plane_result.camera_cloud.workspace_count,
+                plane_result.applied,
+            )
+            if self._ransac_config.enabled and not plane_result.applied:
+                rospy.logwarn_throttle(
+                    5.0,
+                    "[AnyGrasp] table removal fallback (%s); using original ROI cloud",
+                    plane_result.reason,
+                )
+
+            # object_cloud 始终发布；fallback/disabled 时内容就是原 ROI。
+            measure(
+                "object_publish",
+                lambda: self._publish_object_cloud(plane_result, header),
+            )
+            filtered = plane_result.camera_cloud
 
             if getattr(self, "_outlier_filter_enabled", False):
                 before_outlier_filter = filtered.workspace_count
@@ -763,9 +874,14 @@ class AnyGraspD405Node:
         finally:
             total_ms = (time.perf_counter() - total_started) * 1000.0
             rospy.loginfo(
-                "[AnyGrasp] timing ms | PointCloud2 parse: %.3f | finite+workspace filter: %.3f | RViz input publish: %.3f | AnyGrasp inference: %.3f | NMS+sort: %.3f | TOTAL: %.3f",
+                "[AnyGrasp] timing ms | PointCloud2 parse: %.3f | "
+                "finite+workspace filter: %.3f | RANSAC table filter: %.3f | "
+                "RViz object publish: %.3f | RViz input publish: %.3f | "
+                "AnyGrasp inference: %.3f | NMS+sort: %.3f | TOTAL: %.3f",
                 timing_ms["parse"],
                 timing_ms["filter"],
+                timing_ms["ransac"],
+                timing_ms["object_publish"],
                 timing_ms["input_publish"],
                 timing_ms["inference"],
                 timing_ms["nms_sort"],
