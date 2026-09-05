@@ -159,6 +159,7 @@ install(DIRECTORY config launch scripts
 
 install(PROGRAMS
   scripts/robot_stop.py
+  scripts/table_collision_updater.py
   scripts/ur3_headless_moveit.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
@@ -207,6 +208,9 @@ install(PROGRAMS
 
 ## Add folders to be run by python nosetests
 if(CATKIN_ENABLE_TESTING)
+  catkin_add_nosetests(test/test_table_collision.py)
+  catkin_add_nosetests(test/test_table_collision_launch.py)
+  catkin_add_nosetests(test/test_table_collision_updater.py)
   catkin_add_nosetests(test/test_calibrated_ur_launch.py)
   catkin_add_nosetests(test/test_headless_dashboard.py)
   catkin_add_nosetests(test/test_headless_startup.py)

@@ -1,0 +1,20 @@
+# Startup-only ROS 1 parameters. Restart this updater after editing geometry;
+# the first stable model atomically replaces the same table_surface object.
+table_collision_enabled: false
+# Kept visible for launch auditing, but the updater rejects any other ID.
+table_object_id: table_surface
+table_collision_thickness: 0.05
+table_xy_margin: 0.025
+
+table_surface_pose_topic: /yolo_world/table_surface_pose
+stable_table_pose_topic: /table_collision/stable_surface_pose
+table_status_topic: /table_collision/status
+
+stable_plane_frames: 5
+max_height_variation: 0.009
+max_normal_angle_deg: 4.5
+
+update_height_threshold: 0.005
+update_angle_threshold_deg: 2.0
+max_table_plane_age: 1.0
+status_publish_period: 0.5

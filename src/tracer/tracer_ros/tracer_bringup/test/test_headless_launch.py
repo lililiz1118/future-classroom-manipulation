@@ -156,7 +156,9 @@ class HeadlessRvizConfigTest(unittest.TestCase):
         self.assertEqual(panel_classes, {"rviz/Displays", "rviz/Views"})
 
         manager = config["Visualization Manager"]
-        self.assertEqual(manager["Global Options"]["Fixed Frame"], "base_link")
+        self.assertEqual(
+            manager["Global Options"]["Fixed Frame"], "ur_arm_base_link"
+        )
 
         enabled_classes = {
             display["Class"]
