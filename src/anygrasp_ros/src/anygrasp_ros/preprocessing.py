@@ -82,6 +82,7 @@ class PlaneRemovalResult:
     inlier_ratio: float
     table_height: Optional[float]
     normal_angle_deg: Optional[float]
+    plane_valid: bool = False
 
 
 def _fallback_result(
@@ -93,6 +94,7 @@ def _fallback_result(
     inlier_ratio=0.0,
     table_height=None,
     normal_angle_deg=None,
+    plane_valid=False,
 ):
     return PlaneRemovalResult(
         camera_cloud=cloud,
@@ -104,6 +106,7 @@ def _fallback_result(
         inlier_ratio=float(inlier_ratio),
         table_height=table_height,
         normal_angle_deg=normal_angle_deg,
+        plane_valid=bool(plane_valid),
     )
 
 
@@ -268,6 +271,7 @@ def remove_table_plane(cloud, workspace_points, config):
             assessment.inlier_ratio,
             assessment.table_height,
             assessment.normal_angle_deg,
+            plane_valid=True,
         )
 
     filtered_cloud = FilteredCloud(
@@ -287,6 +291,7 @@ def remove_table_plane(cloud, workspace_points, config):
         inlier_ratio=assessment.inlier_ratio,
         table_height=assessment.table_height,
         normal_angle_deg=assessment.normal_angle_deg,
+        plane_valid=True,
     )
 
 

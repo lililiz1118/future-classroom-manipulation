@@ -155,6 +155,8 @@ class RansacTablePlaneFilterTest(unittest.TestCase):
         )
 
         self.assertTrue(result.applied)
+        self.assertTrue(hasattr(result, "plane_valid"), "plane validity is not exposed")
+        self.assertTrue(result.plane_valid)
         self.assertEqual(result.inlier_count, table.shape[0])
         self.assertAlmostEqual(result.inlier_ratio, 400.0 / 440.0, places=6)
         self.assertAlmostEqual(result.table_height, 0.24, places=5)
@@ -260,6 +262,8 @@ class RansacTablePlaneFilterTest(unittest.TestCase):
 
         self.assertFalse(result.applied)
         self.assertEqual(result.reason, "normal_angle")
+        self.assertTrue(hasattr(result, "plane_valid"), "plane validity is not exposed")
+        self.assertFalse(result.plane_valid)
         self.assertIsNotNone(result.plane_model)
         self.assertIsNotNone(result.table_height)
         np.testing.assert_array_equal(result.camera_cloud.points, cloud.points)
@@ -289,6 +293,11 @@ class RansacTablePlaneFilterTest(unittest.TestCase):
 
         self.assertFalse(result.applied)
         self.assertEqual(result.reason, "too_few_object_points")
+        self.assertTrue(hasattr(result, "plane_valid"), "plane validity is not exposed")
+        self.assertTrue(
+            result.plane_valid,
+            "a geometrically accepted table remains valid environment geometry",
+        )
         np.testing.assert_array_equal(result.camera_cloud.points, cloud.points)
         np.testing.assert_array_equal(result.camera_cloud.colors, cloud.colors)
         np.testing.assert_array_equal(result.workspace_points, workspace_points)
