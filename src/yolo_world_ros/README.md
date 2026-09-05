@@ -4,10 +4,18 @@ Thin ROS Noetic integration that projects the current YOLO-World bbox onto a
 timestamp-matched D405 point cloud. It publishes only the debug topic
 `/yolo_world/target_cloud`; it does not load AnyGrasp or change its input.
 
-The raw cloud callback only retains messages for the configured one-second time
-window. Each new valid detection triggers one workspace ROI, one existing
-AnyGrasp RANSAC pass, the depth-optical to color-optical TF transform, raw color
-camera projection, and bbox selection.
+The raw cloud callback retains messages for the configured one-second time
+window and independently maintains the table plane at a bounded 5 Hz default
+cadence. Each processed PointCloud2 is transformed with TF at its own acquisition
+stamp, cropped by the shared AnyGrasp workspace ROI, and passed through the
+existing AnyGrasp RANSAC exactly once. The resulting table pose is published
+without requiring a YOLO detection or a nonempty target cloud.
+
+A detection reuses only the preprocess result bound to its exact matched cloud
+stamp, source frame, and in-process message identity. Rate-limited or in-flight
+samples preserve the previous target until the existing stale watchdog expires;
+they are not published as empty clouds. Target projection then adds only the
+color-frame transform and bbox selection.
 
 ## Start
 
@@ -42,6 +50,8 @@ empty cloud with a real D405 cloud header clears the old target.
 - `cloud_cache_duration_sec=1.0`: retained acquisition-time window.
 - `max_stamp_delta_sec=0.02`: same-acquisition detection/cloud match limit.
 - `max_detection_age_sec=0.5`: independent operational detection expiry.
+- `table_preprocess_rate_hz=5.0`: shared maximum ROI/RANSAC cadence across the
+  cloud and detection callbacks.
 
 The original acquisition stamp is checked against this age before processing.
 After a successful target publish, the same bounded interval acts as an output

@@ -3,6 +3,7 @@ project(yolo_world_ros)
 
 find_package(catkin REQUIRED COMPONENTS
   anygrasp_ros
+  geometry_msgs
   rospy
   sensor_msgs
   std_msgs
@@ -13,7 +14,7 @@ find_package(catkin REQUIRED COMPONENTS
 catkin_python_setup()
 
 catkin_package(
-  CATKIN_DEPENDS anygrasp_ros rospy sensor_msgs std_msgs tf tf2_ros
+  CATKIN_DEPENDS anygrasp_ros geometry_msgs rospy sensor_msgs std_msgs tf tf2_ros
 )
 
 install(PROGRAMS

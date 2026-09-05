@@ -25,6 +25,7 @@ class PackageManifestTest(unittest.TestCase):
         self.assertTrue(
             {
                 "anygrasp_ros",
+                "geometry_msgs",
                 "rospy",
                 "sensor_msgs",
                 "std_msgs",

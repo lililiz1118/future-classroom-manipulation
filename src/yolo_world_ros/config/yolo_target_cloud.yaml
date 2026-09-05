@@ -2,6 +2,7 @@ cloud_topic: /d405/depth/color/points
 camera_info_topic: /d405/color/camera_info
 detection_topic: /yolo_world/target_detection
 target_cloud_topic: /yolo_world/target_cloud
+table_surface_pose_topic: /yolo_world/table_surface_pose
 
 color_frame: d405_color_optical_frame
 
@@ -20,5 +21,7 @@ max_detection_age_sec: 0.5
 
 tf_timeout_sec: 0.2
 stale_check_period_sec: 0.1
+# Shared cap for target-driven and no-detection table preprocessing.
+table_preprocess_rate_hz: 5.0
 require_ransac_success: true
 log_throttle_sec: 1.0

@@ -22,11 +22,16 @@ class YoloTargetCloudConfigurationTest(unittest.TestCase):
         self.assertEqual(
             config["target_cloud_topic"], "/yolo_world/target_cloud"
         )
+        self.assertIn("table_surface_pose_topic", config)
+        self.assertEqual(
+            config["table_surface_pose_topic"], "/yolo_world/table_surface_pose"
+        )
         self.assertEqual(config["color_frame"], "d405_color_optical_frame")
         self.assertEqual(config["cloud_cache_duration_sec"], 1.0)
         self.assertEqual(config["max_stamp_delta_sec"], 0.02)
         self.assertEqual(config["max_detection_age_sec"], 0.5)
         self.assertEqual(config["stale_check_period_sec"], 0.1)
+        self.assertEqual(config["table_preprocess_rate_hz"], 5.0)
         self.assertTrue(config["require_ransac_success"])
 
     def test_launch_reuses_anygrasp_geometry_config_without_control_nodes(self):

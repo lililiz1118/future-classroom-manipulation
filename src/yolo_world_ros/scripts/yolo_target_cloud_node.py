@@ -2,6 +2,7 @@
 """Build a debug target cloud from timestamp-matched YOLO and D405 data."""
 
 import copy
+from dataclasses import dataclass
 import os
 import sys
 import threading
@@ -25,6 +26,7 @@ if os.path.isdir(ANYGRASP_SOURCE) and ANYGRASP_SOURCE not in sys.path:
 import numpy as np
 import rospy
 import tf2_ros
+from geometry_msgs.msg import PoseStamped
 from sensor_msgs import point_cloud2
 from sensor_msgs.msg import CameraInfo, PointCloud2, PointField
 from std_msgs.msg import String
@@ -32,6 +34,7 @@ from tf.transformations import quaternion_matrix
 
 from anygrasp_ros.core import select_workspace, transform_points
 from anygrasp_ros.preprocessing import RansacPlaneConfig, remove_table_plane
+from anygrasp_ros.table_geometry import table_surface_from_plane
 from yolo_world_ros.target_cloud import (
     CameraModel,
     TimedCloudCache,
@@ -44,6 +47,65 @@ from yolo_world_ros.target_cloud import (
 
 
 NSEC_PER_SEC = 1_000_000_000
+
+
+@dataclass(frozen=True)
+class PreprocessedCloud:
+    """One exact PointCloud2 sample after base-frame ROI and table RANSAC."""
+
+    stamp_ns: int
+    source_frame: str
+    message_identity: int
+    header: object
+    workspace_selection: object
+    plane_result: object
+
+
+@dataclass(frozen=True)
+class PreprocessOutcome:
+    """Explicit result so cadence deferral is never mistaken for empty geometry."""
+
+    status: str
+    result: object = None
+    reason: str = None
+
+
+class ExactPreprocessedCache:
+    """Acquisition-identity cache; callers serialize access with node state lock."""
+
+    def __init__(self, duration_sec):
+        self._duration_ns = int(round(float(duration_sec) * NSEC_PER_SEC))
+        if self._duration_ns <= 0:
+            raise ValueError("processed cache duration must be positive")
+        self._samples = {}
+        self._newest_stamp_ns = None
+
+    @staticmethod
+    def key_for(result):
+        return (
+            int(result.stamp_ns),
+            str(result.source_frame),
+            int(result.message_identity),
+        )
+
+    def get(self, key):
+        return self._samples.get(key)
+
+    def add(self, stamp_ns, result):
+        stamp_ns = int(stamp_ns)
+        self._samples[self.key_for(result)] = result
+        if self._newest_stamp_ns is None or stamp_ns > self._newest_stamp_ns:
+            self._newest_stamp_ns = stamp_ns
+        cutoff = self._newest_stamp_ns - self._duration_ns
+        self._samples = {
+            key: value
+            for key, value in self._samples.items()
+            if key[0] >= cutoff
+        }
+
+    @property
+    def count(self):
+        return len(self._samples)
 
 
 def _rotation_translation(transform_stamped):
@@ -64,7 +126,7 @@ def _rotation_translation(transform_stamped):
 
 
 class YoloTargetCloudNode:
-    """ROS orchestration; only detection callbacks run geometric processing."""
+    """Rate-bounded table preprocessing plus timestamp-matched target selection."""
 
     def __init__(self):
         rospy.init_node("yolo_target_cloud_node", anonymous=False)
@@ -80,6 +142,9 @@ class YoloTargetCloudNode:
         )
         self._target_cloud_topic = rospy.get_param(
             "~target_cloud_topic", "/yolo_world/target_cloud"
+        )
+        self._table_surface_pose_topic = rospy.get_param(
+            "~table_surface_pose_topic", "/yolo_world/table_surface_pose"
         )
         self._color_frame = rospy.get_param(
             "~color_frame", "d405_color_optical_frame"
@@ -113,6 +178,9 @@ class YoloTargetCloudNode:
         self._stale_check_period_sec = float(
             rospy.get_param("~stale_check_period_sec", 0.1)
         )
+        table_preprocess_rate_hz = float(
+            rospy.get_param("~table_preprocess_rate_hz", 5.0)
+        )
         self._require_ransac_success = bool(
             rospy.get_param("~require_ransac_success", True)
         )
@@ -123,6 +191,11 @@ class YoloTargetCloudNode:
             raise ValueError("max_detection_age_sec must be positive")
         if self._stale_check_period_sec <= 0.0:
             raise ValueError("stale_check_period_sec must be positive")
+        if not np.isfinite(table_preprocess_rate_hz) or table_preprocess_rate_hz <= 0.0:
+            raise ValueError("table_preprocess_rate_hz must be finite and positive")
+        self._table_preprocess_period_ns = int(
+            round(NSEC_PER_SEC / table_preprocess_rate_hz)
+        )
 
         self._ransac_config = RansacPlaneConfig(
             enabled=bool(rospy.get_param("~ransac_enabled")),
@@ -141,11 +214,15 @@ class YoloTargetCloudNode:
         )
 
         self._cloud_cache = TimedCloudCache(cache_duration)
+        self._processed_cloud_cache = ExactPreprocessedCache(cache_duration)
         self._state_lock = threading.Lock()
         self._camera_model = None
         self._last_seen_detection_stamp_ns = None
         self._active_detection_stamp_ns = None
         self._last_target_activity_ns = None
+        self._last_detection_received_ns = None
+        self._last_preprocess_started_ns = None
+        self._preprocess_inflight = set()
         self._processing = False
         self._target_visible = False
 
@@ -153,6 +230,9 @@ class YoloTargetCloudNode:
         self._tf_listener = tf2_ros.TransformListener(self._tf_buffer)
         self._publisher = rospy.Publisher(
             self._target_cloud_topic, PointCloud2, queue_size=1
+        )
+        self._table_surface_publisher = rospy.Publisher(
+            self._table_surface_pose_topic, PoseStamped, queue_size=1
         )
         self._cloud_subscriber = rospy.Subscriber(
             self._cloud_topic,
@@ -179,13 +259,14 @@ class YoloTargetCloudNode:
         )
         rospy.loginfo(
             "[YOLO target cloud] ready | cloud=%s detection=%s output=%s "
-            "cache=%.3fs stamp_delta=%.3fs detection_age=%.3fs",
+            "cache=%.3fs stamp_delta=%.3fs detection_age=%.3fs preprocess=%.3fHz",
             self._cloud_topic,
             self._detection_topic,
             self._target_cloud_topic,
             cache_duration,
             self._max_stamp_delta_sec,
             max_detection_age_sec,
+            table_preprocess_rate_hz,
         )
 
     def _now_ns(self):
@@ -195,10 +276,175 @@ class YoloTargetCloudNode:
         return stamp_parts_to_ns(now.secs, now.nsecs)
 
     def _logwarn(self, message, *args):
-        rospy.logwarn_throttle(self._log_throttle_sec, message, *args)
+        rospy.logwarn_throttle_identical(self._log_throttle_sec, message, *args)
+
+    @staticmethod
+    def _plane_result_fields(plane_result):
+        plane = plane_result.plane_model
+        plane_text = "none" if plane is None else ",".join(
+            "%.6f" % float(value) for value in plane
+        )
+        height = plane_result.table_height
+        angle = plane_result.normal_angle_deg
+        return {
+            "applied": str(bool(plane_result.applied)).lower(),
+            "plane_valid": str(bool(plane_result.plane_valid)).lower(),
+            "plane_reason": plane_result.reason,
+            "plane": plane_text,
+            "inliers": int(plane_result.inlier_count),
+            "inlier_ratio": "%.6f" % float(plane_result.inlier_ratio),
+            "table_height": "n/a" if height is None else "%.6f" % float(height),
+            "normal_angle_deg": "n/a" if angle is None else "%.6f" % float(angle),
+        }
+
+    def _log_target_empty(self, reason, **fields):
+        details = " ".join(
+            "%s=%s" % (key, fields[key]) for key in sorted(fields)
+        )
+        template = "[YOLO target cloud] empty reason=" + str(reason)
+        if details:
+            self._logwarn(template + " %s", details)
+        else:
+            self._logwarn(template)
+
+    @staticmethod
+    def _preprocess_key(message, stamp_ns):
+        return (int(stamp_ns), str(message.header.frame_id), id(message))
+
+    @staticmethod
+    def _preprocess_matches(preprocessed, message, stamp_ns):
+        return (
+            preprocessed.stamp_ns == int(stamp_ns)
+            and preprocessed.source_frame == str(message.header.frame_id)
+            and preprocessed.message_identity == id(message)
+        )
+
+    def _claim_preprocess_work(self, key, now_ns):
+        with self._state_lock:
+            cached = self._processed_cloud_cache.get(key)
+            if cached is not None:
+                return PreprocessOutcome("cache_hit", cached)
+            if key in self._preprocess_inflight:
+                return PreprocessOutcome("in_flight")
+            last = self._last_preprocess_started_ns
+            if (
+                last is not None
+                and now_ns >= last
+                and now_ns - last < self._table_preprocess_period_ns
+            ):
+                return PreprocessOutcome("rate_limited")
+            self._last_preprocess_started_ns = now_ns
+            self._preprocess_inflight.add(key)
+            return PreprocessOutcome("started")
+
+    def _preprocess_cloud(self, message):
+        """Run the one ROI/RANSAC pass bound to this PointCloud2 header."""
+        source_header = message.header
+        stamp_ns = stamp_parts_to_ns(
+            source_header.stamp.secs, source_header.stamp.nsecs
+        )
+        points, packed_rgb = parse_cloud_arrays(message)
+        workspace_rotation, workspace_translation = self._lookup_arrays(
+            self._workspace_frame,
+            source_header.frame_id,
+            source_header.stamp,
+        )
+        workspace_points = transform_points(
+            points, workspace_rotation, workspace_translation
+        )
+        workspace_selection = select_workspace(
+            points,
+            workspace_points,
+            packed_rgb,
+            self._workspace_bounds,
+        )
+        plane_result = remove_table_plane(
+            workspace_selection.camera_cloud,
+            workspace_selection.workspace_points,
+            self._ransac_config,
+        )
+        return PreprocessedCloud(
+            stamp_ns=stamp_ns,
+            source_frame=str(source_header.frame_id),
+            message_identity=id(message),
+            header=source_header,
+            workspace_selection=workspace_selection,
+            plane_result=plane_result,
+        )
+
+    def _get_or_preprocess(self, message, stamp_ns, now_ns, trigger):
+        key = self._preprocess_key(message, stamp_ns)
+        claim = self._claim_preprocess_work(key, now_ns)
+        if claim.status != "started":
+            return claim
+        try:
+            try:
+                preprocessed = self._preprocess_cloud(message)
+            except tf2_ros.TransformException as exc:
+                self._logwarn(
+                    "[table preprocess] failure reason=tf_failure trigger=%s "
+                    "stamp_ns=%d error=%s",
+                    trigger,
+                    stamp_ns,
+                    exc,
+                )
+                return PreprocessOutcome("failed", reason="tf_failure")
+            except (AttributeError, TypeError, ValueError) as exc:
+                self._logwarn(
+                    "[table preprocess] failure reason=preprocess_failure trigger=%s "
+                    "stamp_ns=%d error=%s",
+                    trigger,
+                    stamp_ns,
+                    exc,
+                )
+                return PreprocessOutcome("failed", reason="preprocess_failure")
+            if not self._preprocess_matches(preprocessed, message, stamp_ns):
+                self._logwarn(
+                    "[table preprocess] failure reason=stamp_or_identity_mismatch "
+                    "requested_stamp=%d actual_stamp=%d requested_frame=%s "
+                    "actual_frame=%s",
+                    stamp_ns,
+                    preprocessed.stamp_ns,
+                    message.header.frame_id,
+                    preprocessed.source_frame,
+                )
+                return PreprocessOutcome(
+                    "failed", reason="stamp_or_identity_mismatch"
+                )
+
+            with self._state_lock:
+                self._processed_cloud_cache.add(stamp_ns, preprocessed)
+                self._preprocess_inflight.discard(key)
+            self._publish_table_surface_pose(
+                preprocessed.plane_result, preprocessed.header
+            )
+            if not preprocessed.plane_result.plane_valid:
+                workspace_count = (
+                    preprocessed.workspace_selection.camera_cloud.workspace_count
+                )
+                rejection = (
+                    "workspace_empty" if workspace_count == 0 else "table_plane_rejected"
+                )
+                self._logwarn(
+                    "[table preprocess] plane rejected reason=%s trigger=%s "
+                    "stamp_ns=%d %s",
+                    rejection,
+                    trigger,
+                    stamp_ns,
+                    " ".join(
+                        "%s=%s" % (field, value)
+                        for field, value in self._plane_result_fields(
+                            preprocessed.plane_result
+                        ).items()
+                    ),
+                )
+            return PreprocessOutcome("processed", preprocessed)
+        finally:
+            with self._state_lock:
+                self._preprocess_inflight.discard(key)
 
     def _cloud_callback(self, message):
-        """Cache only; deliberately contains no parsing, TF, or RANSAC."""
+        """Cache every cloud and maintain table geometry at a bounded cadence."""
         try:
             stamp_ns = stamp_parts_to_ns(
                 message.header.stamp.secs, message.header.stamp.nsecs
@@ -206,6 +452,18 @@ class YoloTargetCloudNode:
             self._cloud_cache.add(stamp_ns, message)
         except (AttributeError, TypeError, ValueError) as exc:
             self._logwarn("[YOLO target cloud] rejected cloud header: %s", exc)
+            return
+
+        now_ns = self._now_ns()
+        with self._state_lock:
+            last_detection = self._last_detection_received_ns
+        detection_recent = (
+            last_detection is not None
+            and now_ns >= last_detection
+            and now_ns - last_detection <= self._max_detection_age_ns
+        )
+        if not detection_recent:
+            self._get_or_preprocess(message, stamp_ns, now_ns, "table_cadence")
 
     def _camera_info_callback(self, message):
         try:
@@ -240,40 +498,60 @@ class YoloTargetCloudNode:
         received_ns = self._now_ns()
         age_ns = received_ns - detection.stamp_ns
         if age_ns > self._max_detection_age_ns:
-            self._logwarn(
-                "[YOLO target cloud] stale detection ignored: age=%.3fs limit=%.3fs",
-                age_ns / float(NSEC_PER_SEC),
-                self._max_detection_age_ns / float(NSEC_PER_SEC),
+            self._clear_visible_target(
+                reason="stale_detection",
+                detection_age_sec="%.6f" % (age_ns / float(NSEC_PER_SEC)),
+                limit_sec="%.6f"
+                % (self._max_detection_age_ns / float(NSEC_PER_SEC)),
             )
-            self._clear_visible_target()
             return
         if detection.frame_id != self._color_frame:
-            self._logwarn(
-                "[YOLO target cloud] detection frame %s does not match color frame %s",
-                detection.frame_id,
-                self._color_frame,
+            self._clear_visible_target(
+                reason="detection_frame_mismatch",
+                detection_frame=detection.frame_id,
+                expected_frame=self._color_frame,
             )
-            self._clear_visible_target()
             return
 
         match = self._cloud_cache.nearest(
             detection.stamp_ns, self._max_stamp_delta_sec
         )
         if match is None:
-            self._logwarn(
-                "[YOLO target cloud] no same-acquisition cloud within %.3fs",
-                self._max_stamp_delta_sec,
+            self._log_target_empty(
+                "detection_cloud_cache_mismatch",
+                detection_stamp_ns=detection.stamp_ns,
+                max_stamp_delta_sec="%.6f" % self._max_stamp_delta_sec,
             )
             return
 
         with self._state_lock:
-            self._last_target_activity_ns = received_ns
+            self._last_detection_received_ns = received_ns
             self._processing = True
         try:
-            self._process_match(detection, match)
+            preprocess_outcome = self._get_or_preprocess(
+                match.message,
+                match.stamp_ns,
+                received_ns,
+                "target_match",
+            )
+            if preprocess_outcome.status in ("rate_limited", "in_flight"):
+                return
+            if preprocess_outcome.status == "failed":
+                self._log_target_empty(
+                    "target_preprocess_failure",
+                    preprocess_reason=preprocess_outcome.reason,
+                    cloud_stamp_ns=match.stamp_ns,
+                    detection_stamp_ns=detection.stamp_ns,
+                    stamp_delta_ns=match.delta_ns,
+                )
+                self._clear_visible_target(match.message.header)
+                return
+            self._process_match(detection, match, preprocess_outcome.result)
         except Exception as exc:
-            self._logwarn("[YOLO target cloud] processing failed: %s", exc)
-            self._clear_visible_target(match.message.header)
+            self._log_target_empty("target_processing_failure", error=exc)
+            self._clear_visible_target(
+                match.message.header,
+            )
         finally:
             with self._state_lock:
                 self._processing = False
@@ -298,14 +576,21 @@ class YoloTargetCloudNode:
             self._last_target_activity_ns = None
         latest = self._cloud_cache.latest()
         if latest is not None:
+            self._log_target_empty(
+                "target_stale",
+                max_age_sec="%.6f"
+                % (self._max_detection_age_ns / float(NSEC_PER_SEC)),
+            )
             self._publish_empty(latest.message.header)
 
-    def _clear_visible_target(self, header=None):
+    def _clear_visible_target(self, header=None, reason=None, **fields):
         with self._state_lock:
             was_visible = self._target_visible
             self._target_visible = False
             self._active_detection_stamp_ns = None
             self._last_target_activity_ns = None
+        if reason is not None:
+            self._log_target_empty(reason, **fields)
         if not was_visible:
             return
         if header is None:
@@ -323,39 +608,57 @@ class YoloTargetCloudNode:
         )
         return _rotation_translation(transform)
 
-    def _process_match(self, detection, match):
+    def _publish_table_surface_pose(self, plane_result, source_header):
+        """Publish the accepted RANSAC plane without running another fit."""
+        if not plane_result.plane_valid or plane_result.plane_model is None:
+            return False
+        try:
+            surface = table_surface_from_plane(
+                plane_result.plane_model,
+                self._workspace_bounds[:4],
+            )
+        except (TypeError, ValueError) as exc:
+            self._logwarn("[YOLO target cloud] invalid accepted table plane: %s", exc)
+            return False
+
+        pose = PoseStamped()
+        pose.header.stamp = source_header.stamp
+        pose.header.frame_id = self._workspace_frame
+        pose.pose.position.x = float(surface.center[0])
+        pose.pose.position.y = float(surface.center[1])
+        pose.pose.position.z = float(surface.center[2])
+        pose.pose.orientation.x = float(surface.quaternion[0])
+        pose.pose.orientation.y = float(surface.quaternion[1])
+        pose.pose.orientation.z = float(surface.quaternion[2])
+        pose.pose.orientation.w = float(surface.quaternion[3])
+        self._table_surface_publisher.publish(pose)
+        return True
+
+    def _process_match(self, detection, match, preprocessed):
         started = time.perf_counter()
-        cloud_message = match.message
-        source_header = cloud_message.header
+        if preprocessed.stamp_ns != match.stamp_ns:
+            raise ValueError(
+                "preprocess stamp %d does not match cloud stamp %d"
+                % (preprocessed.stamp_ns, match.stamp_ns)
+            )
+        source_header = preprocessed.header
+        workspace_selection = preprocessed.workspace_selection
+        plane_result = preprocessed.plane_result
         with self._state_lock:
             camera_model = self._camera_model
         if camera_model is None:
             raise RuntimeError("color CameraInfo is not available")
 
-        points, packed_rgb = parse_cloud_arrays(cloud_message)
-        workspace_rotation, workspace_translation = self._lookup_arrays(
-            self._workspace_frame,
-            source_header.frame_id,
-            source_header.stamp,
-        )
-        workspace_points = transform_points(
-            points, workspace_rotation, workspace_translation
-        )
-        workspace_selection = select_workspace(
-            points,
-            workspace_points,
-            packed_rgb,
-            self._workspace_bounds,
-        )
-        plane_result = remove_table_plane(
-            workspace_selection.camera_cloud,
-            workspace_selection.workspace_points,
-            self._ransac_config,
-        )
         if self._require_ransac_success and not plane_result.applied:
-            self._logwarn(
-                "[YOLO target cloud] RANSAC not applied (%s); publishing empty cloud",
-                plane_result.reason,
+            if workspace_selection.camera_cloud.workspace_count == 0:
+                empty_reason = "workspace_empty"
+            elif plane_result.plane_valid:
+                empty_reason = "insufficient_target_points"
+            else:
+                empty_reason = "table_plane_rejected"
+            self._log_target_empty(
+                empty_reason,
+                **self._plane_result_fields(plane_result)
             )
             self._publish_empty(source_header)
             self._mark_target_published(detection.stamp_ns, target_count=0)
@@ -378,8 +681,21 @@ class YoloTargetCloudNode:
             camera_model,
             detection.bbox,
         )
-        output = self._create_cloud(target.points, target.colors, source_header)
-        self._publisher.publish(output)
+        if target.target_count == 0:
+            self._log_target_empty(
+                "bbox_projection_empty",
+                projected_points=target.projected_count,
+                target_points=target.target_count,
+            )
+            self._publish_empty(source_header)
+        else:
+            output = self._create_cloud(target.points, target.colors, source_header)
+            self._publisher.publish(output)
+            rospy.loginfo_throttle(
+                self._log_throttle_sec,
+                "[YOLO target cloud] nonempty target_points=%d",
+                target.target_count,
+            )
         self._mark_target_published(detection.stamp_ns, target.target_count)
 
         elapsed_ms = (time.perf_counter() - started) * 1000.0
