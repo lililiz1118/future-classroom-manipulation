@@ -50,9 +50,11 @@ if SYSTEM_DIST_PACKAGES in sys.path:
     sys.path.remove(SYSTEM_DIST_PACKAGES)
 
 from anygrasp_ros.core import (
+    FilteredCloud,
     dynamic_point_bounds,
     grasp_axes,
     rotation_matrix_to_quaternion,
+    select_finite_cloud,
     select_workspace,
     transform_points,
 )
@@ -65,6 +67,9 @@ from anygrasp_ros.preprocessing import (
 
 
 EXPECTED_PYTHON = "/home/jt001/.conda/envs/anygrasp/bin/python"
+INPUT_MODE_WORKSPACE = "workspace"
+INPUT_MODE_YOLO_TARGET = "yolo_target"
+VALID_INPUT_MODES = (INPUT_MODE_WORKSPACE, INPUT_MODE_YOLO_TARGET)
 
 
 def is_fatal_backend_error(error):
@@ -180,7 +185,24 @@ class AnyGraspD405Node:
             )
 
         # 这些 ``~参数`` 由 launch 文件加载 anygrasp_d405.yaml 后提供。
-        self._cloud_topic = rospy.get_param("~cloud_topic", "/d405/depth/color/points")
+        self._input_mode = str(
+            rospy.get_param("~input_mode", INPUT_MODE_WORKSPACE)
+        ).strip()
+        if self._input_mode not in VALID_INPUT_MODES:
+            raise ValueError(
+                "input_mode must be one of: " + ", ".join(VALID_INPUT_MODES)
+            )
+        self._workspace_input_topic = rospy.get_param(
+            "~cloud_topic", "/d405/depth/color/points"
+        )
+        self._target_cloud_topic = rospy.get_param(
+            "~target_cloud_topic", "/yolo_world/target_cloud"
+        )
+        self._cloud_topic = (
+            self._target_cloud_topic
+            if self._input_mode == INPUT_MODE_YOLO_TARGET
+            else self._workspace_input_topic
+        )
         self._best_topic = rospy.get_param("~best_grasp_topic", "/anygrasp/best_grasp")
         self._best_base_topic = rospy.get_param(
             "~best_grasp_base_topic", "/anygrasp/best_grasp_base"
@@ -196,9 +218,23 @@ class AnyGraspD405Node:
         self._top_n = int(rospy.get_param("~top_n", 10))
         self._inference_rate = float(rospy.get_param("~inference_rate", 1.0))
         self._min_workspace_points = int(rospy.get_param("~min_workspace_points", 1000))
+        self._min_target_points = int(rospy.get_param("~min_target_points", 1000))
+        self._max_target_cloud_age = float(
+            rospy.get_param("~max_target_cloud_age", 1.0)
+        )
+        self._last_target_cloud_stamp_ns = None
         self._publish_input = bool(rospy.get_param("~publish_input_cloud", False))
-        if self._top_n <= 0 or self._inference_rate <= 0.0 or self._min_workspace_points <= 0:
-            raise ValueError("top_n, inference_rate, and min_workspace_points must be positive")
+        if (
+            self._top_n <= 0
+            or self._inference_rate <= 0.0
+            or self._min_workspace_points <= 0
+            or self._min_target_points <= 0
+            or not np.isfinite(self._max_target_cloud_age)
+            or self._max_target_cloud_age <= 0.0
+        ):
+            raise ValueError(
+                "top_n, inference_rate, min point counts, and target age must be positive"
+            )
 
         # ROI 边界始终属于 workspace.frame_id，而不是输入相机 frame。
         workspace = rospy.get_param("~workspace")
@@ -293,6 +329,11 @@ class AnyGraspD405Node:
         )
 
         rospy.loginfo("[AnyGrasp] Python: %s", sys.executable)
+        rospy.loginfo(
+            "[AnyGrasp] input mode: %s | cloud topic: %s",
+            self._input_mode,
+            self._cloud_topic,
+        )
         rospy.loginfo("[AnyGrasp] workspace frame: %s", self._workspace_frame)
         rospy.loginfo(
             "[AnyGrasp] workspace x: [%.6f, %.6f]",
@@ -653,8 +694,232 @@ class AnyGraspD405Node:
         base_pose.pose.orientation.w = float(base_quaternion[3])
         self._best_base_publisher.publish(base_pose)
 
+    def _now(self):
+        """Return ROS time, with a deterministic hook for runtime tests."""
+        if hasattr(self, "_clock_now"):
+            return self._clock_now()
+        return rospy.Time.now()
+
+    @staticmethod
+    def _empty_filtered_cloud():
+        return FilteredCloud(
+            points=np.empty((0, 3), dtype=np.float32),
+            colors=np.empty((0, 3), dtype=np.float32),
+            raw_count=0,
+            valid_count=0,
+            workspace_count=0,
+        )
+
+    def _reject_target_cloud(self, header, reason, *reason_args):
+        """Invalidate RViz output without falling back to the workspace cloud."""
+        rospy.logwarn_throttle(5.0, reason, *reason_args)
+        self._publish_input_cloud(self._empty_filtered_cloud(), header)
+        self._publish_clear_markers(header)
+
+    def _claim_target_cloud_stamp(self, header):
+        """Validate and claim one fresh target observation at most once."""
+        if not str(header.frame_id).strip():
+            return False, "invalid_frame"
+        try:
+            stamp_ns = int(header.stamp.to_nsec())
+            now_ns = int(self._now().to_nsec())
+        except (AttributeError, TypeError, ValueError, OverflowError):
+            return False, "invalid_stamp"
+        if stamp_ns <= 0:
+            return False, "invalid_stamp"
+        age_sec = (now_ns - stamp_ns) / 1e9
+        if age_sec < 0.0:
+            return False, "future_stamp"
+        if age_sec > self._max_target_cloud_age:
+            return False, "stale"
+        if self._last_target_cloud_stamp_ns is not None:
+            if stamp_ns == self._last_target_cloud_stamp_ns:
+                return False, "duplicate"
+            if stamp_ns < self._last_target_cloud_stamp_ns:
+                return False, "out_of_order"
+        self._last_target_cloud_stamp_ns = stamp_ns
+        return True, "accepted"
+
+    def _process_yolo_target_cloud(self, message):
+        """Run finite filtering and SOR on one semantic target cloud.
+
+        The target cloud already passed workspace ROI, table RANSAC, and YOLO
+        bbox filtering.  Its XYZ stays in the source camera frame through the
+        AnyGrasp SDK; TF is used only to publish the existing base-frame pose.
+        """
+        total_started = time.perf_counter()
+        timing_ms = {
+            "parse": 0.0,
+            "finite": 0.0,
+            "sor": 0.0,
+            "input_publish": 0.0,
+            "inference": 0.0,
+            "nms_sort": 0.0,
+        }
+
+        def measure(stage, operation):
+            stage_started = time.perf_counter()
+            try:
+                return operation()
+            finally:
+                timing_ms[stage] = (time.perf_counter() - stage_started) * 1000.0
+
+        header = self._header_from_cloud(message)
+        claimed, reason = self._claim_target_cloud_stamp(header)
+        if not claimed:
+            if reason in ("duplicate", "out_of_order"):
+                rospy.logwarn_throttle(
+                    5.0,
+                    "[AnyGrasp] target cloud %s stamp ignored: %d.%09d",
+                    reason,
+                    header.stamp.secs,
+                    header.stamp.nsecs,
+                )
+                return
+            self._reject_target_cloud(
+                header,
+                "[AnyGrasp] invalid target cloud header (%s); skipping inference",
+                reason,
+            )
+            return
+
+        try:
+            points, packed_rgb = measure(
+                "parse", lambda: self._cloud_to_arrays(message)
+            )
+            filtered = measure(
+                "finite", lambda: select_finite_cloud(points, packed_rgb)
+            )
+            rospy.loginfo(
+                "[AnyGrasp] YOLO target | frame: %s | raw points: %d | "
+                "finite points: %d",
+                header.frame_id,
+                filtered.raw_count,
+                filtered.valid_count,
+            )
+            if filtered.workspace_count < self._min_target_points:
+                self._reject_target_cloud(
+                    header,
+                    "[AnyGrasp] YOLO target has %d finite points (minimum %d); "
+                    "skipping SOR and inference",
+                    filtered.workspace_count,
+                    self._min_target_points,
+                )
+                return
+
+            before_sor = filtered.workspace_count
+            if getattr(self, "_outlier_filter_enabled", False):
+                filtered = measure(
+                    "sor",
+                    lambda: remove_statistical_outliers(
+                        filtered,
+                        self._outlier_nb_neighbors,
+                        self._outlier_std_ratio,
+                    ),
+                )
+            rospy.loginfo(
+                "[AnyGrasp] YOLO target SOR | before: %d | after: %d | removed: %d",
+                before_sor,
+                filtered.workspace_count,
+                before_sor - filtered.workspace_count,
+            )
+
+            try:
+                camera_to_workspace = self._tf_buffer.lookup_transform(
+                    self._workspace_frame,
+                    header.frame_id,
+                    header.stamp,
+                    self._tf_timeout,
+                )
+            except (
+                tf2_ros.LookupException,
+                tf2_ros.ConnectivityException,
+                tf2_ros.ExtrapolationException,
+            ) as exc:
+                rospy.logwarn_throttle(
+                    5.0,
+                    "[AnyGrasp] waiting for TF: %s <- %s at target-cloud stamp: %s",
+                    self._workspace_frame,
+                    header.frame_id,
+                    exc,
+                )
+                self._publish_clear_markers(header)
+                return
+
+            measure(
+                "input_publish",
+                lambda: self._publish_input_cloud(filtered, header),
+            )
+            if filtered.workspace_count < self._min_target_points:
+                rospy.logwarn_throttle(
+                    5.0,
+                    "[AnyGrasp] YOLO target has %d points after SOR (minimum %d); "
+                    "skipping inference",
+                    filtered.workspace_count,
+                    self._min_target_points,
+                )
+                self._publish_clear_markers(header)
+                return
+
+            camera_bounds = dynamic_point_bounds(
+                filtered.points,
+                self._dynamic_lims_margin,
+            )
+            rospy.loginfo(
+                "[AnyGrasp] network input | mode: yolo_target | frame: %s | "
+                "stamp: %d.%09d | points: %d",
+                header.frame_id,
+                header.stamp.secs,
+                header.stamp.nsecs,
+                filtered.workspace_count,
+            )
+            grasps = measure(
+                "inference",
+                lambda: self._adapter.infer(
+                    filtered.points,
+                    filtered.colors,
+                    camera_bounds,
+                ),
+            )
+            before_nms = len(grasps)
+            if before_nms == 0:
+                rospy.logwarn_throttle(5.0, "[AnyGrasp] no grasp detected")
+                self._publish_clear_markers(header)
+                return
+            grasps = measure("nms_sort", lambda: grasps.nms().sort_by_score())
+            after_nms = len(grasps)
+            selected = grasps[: min(self._top_n, after_nms)]
+            if len(selected) == 0:
+                self._publish_clear_markers(header)
+                return
+            self._publish_grasps(selected, header, camera_to_workspace)
+            rospy.loginfo(
+                "[AnyGrasp] grasps before nms: %d | grasps after nms: %d | "
+                "published grasps: %d | best score: %.6f",
+                before_nms,
+                after_nms,
+                len(selected),
+                float(selected[0].score),
+            )
+        finally:
+            total_ms = (time.perf_counter() - total_started) * 1000.0
+            rospy.loginfo(
+                "[AnyGrasp] yolo_target timing ms | PointCloud2 parse: %.3f | "
+                "finite filter: %.3f | SOR: %.3f | RViz input publish: %.3f | "
+                "AnyGrasp inference: %.3f | NMS+sort: %.3f | TOTAL: %.3f",
+                timing_ms["parse"],
+                timing_ms["finite"],
+                timing_ms["sor"],
+                timing_ms["input_publish"],
+                timing_ms["inference"],
+                timing_ms["nms_sort"],
+                total_ms,
+            )
+
     def _process_cloud(self, message):
         """处理单帧点云：解析 → ROI → RANSAC → SOR → 推理 → 发布。"""
+        if self._input_mode == INPUT_MODE_YOLO_TARGET:
+            return self._process_yolo_target_cloud(message)
         total_started = time.perf_counter()
         timing_ms = {
             "parse": 0.0,

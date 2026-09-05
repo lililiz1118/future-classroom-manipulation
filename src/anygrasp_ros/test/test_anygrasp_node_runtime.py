@@ -122,12 +122,17 @@ def make_transform(stamp=rospy.Time(999, 1)):
 
 def make_node(scores=(0.2, 0.9, 0.5)):
     node = NODE.AnyGraspD405Node.__new__(NODE.AnyGraspD405Node)
+    node._input_mode = "workspace"
     node._workspace_frame = "ur_arm_base_link"
     node._workspace_bounds = (0.5, 1.5, 1.5, 3.0, 3.0, 4.0)
     node._dynamic_lims_margin = 0.01
     node._tf_timeout = rospy.Duration.from_sec(0.2)
     node._tf_buffer = FakeTfBuffer(make_transform())
     node._min_workspace_points = 1
+    node._min_target_points = 1
+    node._max_target_cloud_age = 1.0
+    node._last_target_cloud_stamp_ns = None
+    node._clock_now = lambda: rospy.Time(100, 0)
     node._ransac_config = RansacPlaneConfig(
         enabled=False,
         distance_threshold=0.008,
@@ -271,6 +276,46 @@ class NodeDefaultsTest(unittest.TestCase):
             node = NODE.AnyGraspD405Node()
 
         self.assertFalse(node._publish_input)
+        self.assertEqual(node._input_mode, "workspace")
+        self.assertEqual(node._cloud_topic, "/d405/depth/color/points")
+
+    def test_yolo_target_mode_subscribes_only_to_configured_target_cloud(self):
+        workspace = {
+            "frame_id": "ur_arm_base_link",
+            "x_min": -0.5,
+            "x_max": 0.5,
+            "y_min": -0.5,
+            "y_max": 0.5,
+            "z_min": 0.1,
+            "z_max": 1.5,
+        }
+
+        def get_param(name, *default):
+            values = {
+                "~python_executable": sys.executable,
+                "~workspace": workspace,
+                "~input_mode": "yolo_target",
+                "~target_cloud_topic": "/semantic/selected_cloud",
+            }
+            if name in values:
+                return values[name]
+            if default:
+                return default[0]
+            raise KeyError(name)
+
+        subscriber = Mock()
+        with patch.object(NODE.rospy, "init_node"), patch.object(
+            NODE.rospy, "get_param", side_effect=get_param
+        ), patch.object(NODE, "AnyGraspAdapter"), patch.object(
+            NODE.rospy, "Publisher", return_value=CapturePublisher()
+        ), patch.object(NODE.rospy, "Subscriber", subscriber), patch.object(
+            NODE.tf2_ros, "Buffer", return_value=FakeTfBuffer(make_transform())
+        ), patch.object(NODE.tf2_ros, "TransformListener"):
+            node = NODE.AnyGraspD405Node()
+
+        self.assertEqual(node._input_mode, "yolo_target")
+        self.assertEqual(node._cloud_topic, "/semantic/selected_cloud")
+        self.assertEqual(subscriber.call_args.args[0], "/semantic/selected_cloud")
 
     def test_ransac_parameters_are_loaded_from_checked_in_yaml(self):
         config = yaml.safe_load(CONFIG_PATH.read_text(encoding="utf-8"))
@@ -302,8 +347,8 @@ class NodeDefaultsTest(unittest.TestCase):
                 num_iterations=1000,
                 min_points=1000,
                 max_normal_angle_deg=15.0,
-                table_height_min=0.20,
-                table_height_max=0.28,
+                table_height_min=0.29,
+                table_height_max=0.31,
                 min_inliers=500,
                 min_inlier_ratio=0.20,
                 min_object_points=1000,
@@ -389,6 +434,182 @@ class ProcessCloudTest(unittest.TestCase):
         self.assertEqual(len(markers), 7)
         self.assertEqual(markers[0].action, Marker.DELETEALL)
         self.assertEqual({marker.header.frame_id for marker in markers}, {header.frame_id})
+
+    def test_yolo_target_bypasses_workspace_and_ransac_and_preserves_camera_frame(self):
+        node = make_node()
+        node._input_mode = "yolo_target"
+        node._min_target_points = 2
+        node._clock_now = lambda: rospy.Time(100, 900000000)
+        node._outlier_filter_enabled = True
+        node._outlier_nb_neighbors = 1
+        node._outlier_std_ratio = 1.0
+        header = Header(
+            stamp=rospy.Time(100, 500000000),
+            frame_id="d405_depth_optical_frame",
+        )
+        message = SimpleNamespace(header=header)
+        points = np.array(
+            [
+                [0.02, 0.01, 0.40],
+                [0.03, 0.01, 0.41],
+                [0.04, 0.01, 0.42],
+                [np.nan, 0.02, 0.43],
+            ],
+            dtype=np.float32,
+        )
+        node._cloud_to_arrays = lambda unused: (
+            points,
+            np.array([0x00FF0000, 0x0000FF00, 0x000000FF, 0x00FFFFFF], dtype=np.uint32),
+        )
+
+        def keep_first_two(cloud, unused_neighbors, unused_ratio):
+            return FilteredCloud(
+                points=cloud.points[:2],
+                colors=cloud.colors[:2],
+                raw_count=cloud.raw_count,
+                valid_count=cloud.valid_count,
+                workspace_count=2,
+            )
+
+        with patch.object(
+            NODE, "select_workspace", side_effect=AssertionError("ROI must be skipped")
+        ), patch.object(
+            NODE, "remove_table_plane", side_effect=AssertionError("RANSAC must be skipped")
+        ), patch.object(
+            NODE, "remove_statistical_outliers", side_effect=keep_first_two
+        ):
+            node._process_cloud(message)
+
+        self.assertEqual(len(node._adapter.calls), 1)
+        np.testing.assert_array_equal(node._adapter.calls[0][0], points[:2])
+        self.assertEqual(node._workspace_publisher.messages, [])
+        self.assertEqual(node._object_publisher.messages, [])
+        self.assertEqual(node._input_publisher.messages[0].header.frame_id, header.frame_id)
+        self.assertEqual(node._input_publisher.messages[0].header.stamp, header.stamp)
+        self.assertEqual(node._input_publisher.messages[0].width, 2)
+        self.assertEqual(node._best_publisher.messages[0].header.frame_id, header.frame_id)
+        self.assertEqual(node._best_publisher.messages[0].header.stamp, header.stamp)
+        self.assertEqual(
+            {marker.header.frame_id for marker in node._marker_publisher.messages[0].markers},
+            {header.frame_id},
+        )
+        self.assertEqual(
+            node._best_base_publisher.messages[0].header.frame_id,
+            "ur_arm_base_link",
+        )
+        self.assertEqual(node._best_base_publisher.messages[0].header.stamp, header.stamp)
+
+    def test_yolo_target_checks_minimum_after_finite_filter_before_sor(self):
+        node = make_node()
+        node._input_mode = "yolo_target"
+        node._min_target_points = 2
+        node._clock_now = lambda: rospy.Time(50, 500000000)
+        node._outlier_filter_enabled = True
+        header = Header(
+            stamp=rospy.Time(50, 0), frame_id="d405_depth_optical_frame"
+        )
+        message = SimpleNamespace(header=header)
+        node._cloud_to_arrays = lambda unused: (
+            np.array([[0.0, 0.0, 0.4], [np.nan, 0.0, 0.5]], dtype=np.float32),
+            np.array([0x00FF0000, 0x0000FF00], dtype=np.uint32),
+        )
+
+        with patch.object(
+            NODE,
+            "remove_statistical_outliers",
+            side_effect=AssertionError("SOR must not run below the finite-point minimum"),
+        ), patch.object(NODE.rospy, "logwarn_throttle"):
+            node._process_cloud(message)
+
+        self.assertEqual(node._adapter.calls, [])
+        self.assertEqual(node._input_publisher.messages[-1].width, 0)
+        self.assertEqual(node._marker_publisher.messages[-1].markers[0].action, Marker.DELETEALL)
+
+    def test_yolo_target_checks_minimum_again_after_sor(self):
+        node = make_node()
+        node._input_mode = "yolo_target"
+        node._min_target_points = 3
+        node._clock_now = lambda: rospy.Time(60, 500000000)
+        node._outlier_filter_enabled = True
+        node._outlier_nb_neighbors = 1
+        node._outlier_std_ratio = 1.0
+        header = Header(
+            stamp=rospy.Time(60, 0), frame_id="d405_depth_optical_frame"
+        )
+        message = SimpleNamespace(header=header)
+        points = np.array(
+            [[0.0, 0.0, 0.40], [0.01, 0.0, 0.41], [0.02, 0.0, 0.42]],
+            dtype=np.float32,
+        )
+        node._cloud_to_arrays = lambda unused: (
+            points,
+            np.array([0x00FF0000, 0x0000FF00, 0x000000FF], dtype=np.uint32),
+        )
+
+        def keep_first_two(cloud, unused_neighbors, unused_ratio):
+            return FilteredCloud(
+                points=cloud.points[:2],
+                colors=cloud.colors[:2],
+                raw_count=cloud.raw_count,
+                valid_count=cloud.valid_count,
+                workspace_count=2,
+            )
+
+        with patch.object(
+            NODE, "remove_statistical_outliers", side_effect=keep_first_two
+        ), patch.object(NODE.rospy, "logwarn_throttle"):
+            node._process_cloud(message)
+
+        self.assertEqual(node._adapter.calls, [])
+        self.assertEqual(node._input_publisher.messages[-1].width, 2)
+        self.assertEqual(node._input_publisher.messages[-1].header.frame_id, header.frame_id)
+        self.assertEqual(node._marker_publisher.messages[-1].markers[0].action, Marker.DELETEALL)
+
+    def test_yolo_target_rejects_stale_and_zero_stamps_before_parsing(self):
+        cases = (
+            (rospy.Time(0, 0), rospy.Time(10, 0)),
+            (rospy.Time(10, 0), rospy.Time(12, 0)),
+        )
+        for stamp, now in cases:
+            with self.subTest(stamp=stamp, now=now):
+                node = make_node()
+                node._input_mode = "yolo_target"
+                node._max_target_cloud_age = 1.0
+                node._clock_now = lambda now=now: now
+                header = Header(stamp=stamp, frame_id="d405_depth_optical_frame")
+                message = SimpleNamespace(header=header)
+                node._cloud_to_arrays = Mock(
+                    side_effect=AssertionError("invalid target must not be parsed")
+                )
+
+                with patch.object(NODE.rospy, "logwarn_throttle"):
+                    node._process_cloud(message)
+
+                self.assertEqual(node._adapter.calls, [])
+                self.assertEqual(node._input_publisher.messages[-1].width, 0)
+                self.assertEqual(
+                    node._marker_publisher.messages[-1].markers[0].action,
+                    Marker.DELETEALL,
+                )
+
+    def test_yolo_target_stamp_is_inferred_at_most_once(self):
+        node = make_node()
+        node._input_mode = "yolo_target"
+        node._clock_now = lambda: rospy.Time(70, 500000000)
+        header = Header(
+            stamp=rospy.Time(70, 0), frame_id="d405_depth_optical_frame"
+        )
+        message = SimpleNamespace(header=header)
+        node._cloud_to_arrays = lambda unused: (
+            np.array([[0.0, 0.0, 0.4], [0.01, 0.0, 0.41]], dtype=np.float32),
+            np.array([0x00FF0000, 0x0000FF00], dtype=np.uint32),
+        )
+
+        with patch.object(NODE.rospy, "logwarn_throttle"):
+            node._process_cloud(message)
+            node._process_cloud(message)
+
+        self.assertEqual(len(node._adapter.calls), 1)
 
     def test_empty_workspace_publishes_current_empty_cloud_and_clears_markers(self):
         node = make_node()

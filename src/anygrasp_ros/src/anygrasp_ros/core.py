@@ -54,6 +54,33 @@ def decode_packed_rgb(values: np.ndarray, datatype: int) -> np.ndarray:
     return (colors.astype(np.float32) / np.float32(255.0)).reshape(-1, 3)
 
 
+def select_finite_cloud(
+    camera_points: np.ndarray,
+    packed_rgb: np.ndarray,
+) -> FilteredCloud:
+    """Keep finite camera-frame XYZ and its aligned packed RGB samples."""
+    camera_array = np.asarray(camera_points, dtype=np.float32)
+    packed_array = np.asarray(packed_rgb)
+    if camera_array.ndim != 2 or camera_array.shape[1] != 3:
+        raise ValueError("camera_points must have shape (N, 3)")
+    if packed_array.ndim != 1:
+        raise ValueError("packed_rgb must have shape (N,)")
+    if camera_array.shape[0] != packed_array.shape[0]:
+        raise ValueError("camera_points and packed_rgb must contain the same samples")
+
+    finite_mask = np.isfinite(camera_array).all(axis=1)
+    finite_points = camera_array[finite_mask].astype(np.float32, copy=False)
+    finite_packed_rgb = packed_array[finite_mask].astype(np.uint32, copy=False)
+    finite_count = int(finite_points.shape[0])
+    return FilteredCloud(
+        points=finite_points,
+        colors=decode_packed_rgb(finite_packed_rgb, POINT_FIELD_UINT32),
+        raw_count=int(camera_array.shape[0]),
+        valid_count=finite_count,
+        workspace_count=finite_count,
+    )
+
+
 def transform_points(
     points: np.ndarray,
     rotation: np.ndarray,

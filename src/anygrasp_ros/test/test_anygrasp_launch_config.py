@@ -1,14 +1,21 @@
+import sys
 import unittest
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
+import numpy as np
 import yaml
 
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
+PACKAGE_SRC = PACKAGE_ROOT / "src"
+sys.path.insert(0, str(PACKAGE_SRC))
 CONFIG_PATH = PACKAGE_ROOT / "config" / "anygrasp_d405.yaml"
 LAUNCH_PATH = PACKAGE_ROOT / "launch" / "anygrasp_d405.launch"
 RESOURCE_CONFIG_PATH = PACKAGE_ROOT / "config" / "anygrasp_resources.yaml"
+
+from anygrasp_ros.core import select_workspace
+from anygrasp_ros.preprocessing import RansacPlaneConfig, remove_table_plane
 
 
 class AnyGraspConfigurationTest(unittest.TestCase):
@@ -16,7 +23,13 @@ class AnyGraspConfigurationTest(unittest.TestCase):
         self.assertTrue(CONFIG_PATH.is_file(), f"missing config: {CONFIG_PATH}")
         config = yaml.safe_load(CONFIG_PATH.read_text(encoding="utf-8"))
 
+        self.assertEqual(config["input_mode"], "workspace")
         self.assertEqual(config["cloud_topic"], "/d405/depth/color/points")
+        self.assertEqual(
+            config["target_cloud_topic"], "/yolo_world/target_cloud"
+        )
+        self.assertEqual(config["max_target_cloud_age"], 1.0)
+        self.assertEqual(config["min_target_points"], 1000)
         self.assertEqual(config["best_grasp_topic"], "/anygrasp/best_grasp")
         self.assertEqual(
             config["best_grasp_base_topic"], "/anygrasp/best_grasp_base"
@@ -64,8 +77,8 @@ class AnyGraspConfigurationTest(unittest.TestCase):
                 "ransac_num_iterations": 1000,
                 "ransac_min_points": 1000,
                 "ransac_max_normal_angle_deg": 15.0,
-                "ransac_table_height_min": 0.20,
-                "ransac_table_height_max": 0.28,
+                "ransac_table_height_min": 0.29,
+                "ransac_table_height_max": 0.31,
                 "ransac_min_inliers": 500,
                 "ransac_min_inlier_ratio": 0.20,
                 "ransac_min_object_points": 1000,
@@ -87,10 +100,70 @@ class AnyGraspConfigurationTest(unittest.TestCase):
                 "x_max": 0.21,
                 "y_min": 0.23,
                 "y_max": 0.54,
-                "z_min": 0.22,
-                "z_max": 0.31,
+                "z_min": 0.29,
+                "z_max": 0.40,
             },
         )
+
+    def test_configured_roi_removes_new_table_and_preserves_cuboid_height(self):
+        config = yaml.safe_load(CONFIG_PATH.read_text(encoding="utf-8"))
+        random = np.random.RandomState(11)
+        table = np.array(
+            [
+                [x, y, 0.300]
+                for x in np.linspace(-0.20, 0.18, 50)
+                for y in np.linspace(0.25, 0.52, 40)
+            ],
+            dtype=np.float32,
+        )
+        cuboid = np.column_stack(
+            (
+                random.uniform(0.08, 0.16, 1500),
+                random.uniform(0.34, 0.42, 1500),
+                random.uniform(0.32, 0.38, 1500),
+            )
+        ).astype(np.float32)
+        workspace_points = np.vstack((table, cuboid))
+        selected = select_workspace(
+            workspace_points,
+            workspace_points,
+            np.zeros(workspace_points.shape[0], dtype=np.uint32),
+            tuple(
+                config["workspace"][key]
+                for key in (
+                    "x_min",
+                    "x_max",
+                    "y_min",
+                    "y_max",
+                    "z_min",
+                    "z_max",
+                )
+            ),
+        )
+        ransac = RansacPlaneConfig(
+            enabled=config["ransac_enabled"],
+            distance_threshold=config["ransac_distance_threshold"],
+            ransac_n=config["ransac_n"],
+            num_iterations=config["ransac_num_iterations"],
+            min_points=config["ransac_min_points"],
+            max_normal_angle_deg=config["ransac_max_normal_angle_deg"],
+            table_height_min=config["ransac_table_height_min"],
+            table_height_max=config["ransac_table_height_max"],
+            min_inliers=config["ransac_min_inliers"],
+            min_inlier_ratio=config["ransac_min_inlier_ratio"],
+            min_object_points=config["ransac_min_object_points"],
+        )
+
+        result = remove_table_plane(
+            selected.camera_cloud,
+            selected.workspace_points,
+            ransac,
+        )
+
+        self.assertTrue(result.applied, result.reason)
+        self.assertAlmostEqual(result.table_height, 0.300, places=3)
+        self.assertGreaterEqual(result.camera_cloud.workspace_count, 1400)
+        self.assertGreater(float(result.workspace_points[:, 2].max()), 0.37)
 
     def test_launch_uses_conda_python_and_includes_no_control_launch(self):
         self.assertTrue(LAUNCH_PATH.is_file(), f"missing launch: {LAUNCH_PATH}")
@@ -114,6 +187,14 @@ class AnyGraspConfigurationTest(unittest.TestCase):
         resource_environment = node.find("env")
         self.assertEqual(resource_environment.attrib["name"], "ANYGRASP_RESOURCE_CONFIG")
         self.assertEqual(resource_environment.attrib["value"], "$(arg resource_config_file)")
+        input_mode_argument = next(
+            item for item in root.findall("arg") if item.attrib["name"] == "input_mode"
+        )
+        self.assertEqual(input_mode_argument.attrib["default"], "workspace")
+        input_mode_parameter = next(
+            item for item in node.findall("param") if item.attrib["name"] == "input_mode"
+        )
+        self.assertEqual(input_mode_parameter.attrib["value"], "$(arg input_mode)")
 
 
 if __name__ == "__main__":

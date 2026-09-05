@@ -16,6 +16,7 @@ try:
         dynamic_point_bounds,
         grasp_axes,
         rotation_matrix_to_quaternion,
+        select_finite_cloud,
         select_workspace,
         transform_points,
     )
@@ -52,6 +53,38 @@ class DecodePackedRgbTest(unittest.TestCase):
         np.testing.assert_allclose(
             colors,
             np.array([[16.0 / 255.0, 32.0 / 255.0, 48.0 / 255.0]], dtype=np.float32),
+        )
+
+
+@unittest.skipIf(CORE_IMPORT_ERROR is not None, "core module not implemented")
+class FiniteCloudSelectionTest(unittest.TestCase):
+    def test_nonfinite_xyz_is_removed_without_changing_camera_coordinates_or_rgb(self):
+        points = np.array(
+            [
+                [0.10, 0.20, 0.30],
+                [np.nan, 0.40, 0.50],
+                [0.60, np.inf, 0.70],
+                [-0.10, 0.00, 0.80],
+            ],
+            dtype=np.float32,
+        )
+        packed_rgb = np.array(
+            [0x00FF0000, 0x0000FF00, 0x000000FF, 0x004080BF],
+            dtype=np.uint32,
+        )
+
+        result = select_finite_cloud(points, packed_rgb)
+
+        self.assertEqual(result.raw_count, 4)
+        self.assertEqual(result.valid_count, 2)
+        self.assertEqual(result.workspace_count, 2)
+        np.testing.assert_array_equal(result.points, points[[0, 3]])
+        np.testing.assert_allclose(
+            result.colors,
+            np.array(
+                [[1.0, 0.0, 0.0], [64.0 / 255.0, 128.0 / 255.0, 191.0 / 255.0]],
+                dtype=np.float32,
+            ),
         )
 
 

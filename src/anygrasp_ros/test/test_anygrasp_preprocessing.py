@@ -165,6 +165,47 @@ class RansacTablePlaneFilterTest(unittest.TestCase):
             result.camera_cloud.points.shape[0], result.camera_cloud.colors.shape[0]
         )
 
+    def test_table_height_band_prevents_larger_object_plane_from_hijacking_ransac(self):
+        config_type, _, remove_table_plane = load_ransac_api(self)
+        table = np.array(
+            [
+                [x, y, 0.300]
+                for x in np.linspace(-0.10, 0.10, 20)
+                for y in np.linspace(0.30, 0.50, 20)
+            ],
+            dtype=np.float32,
+        )
+        larger_object_plane = np.array(
+            [
+                [x, y, 0.365]
+                for x in np.linspace(-0.08, 0.08, 40)
+                for y in np.linspace(0.32, 0.48, 20)
+            ],
+            dtype=np.float32,
+        )
+        workspace_points = np.vstack((table, larger_object_plane))
+        camera_points = workspace_points + np.array(
+            [0.4, -0.2, 0.7], dtype=np.float32
+        )
+
+        result = remove_table_plane(
+            make_cloud(camera_points),
+            workspace_points,
+            make_ransac_config(
+                config_type,
+                distance_threshold=0.002,
+                table_height_min=0.29,
+                table_height_max=0.31,
+                min_inliers=300,
+                min_object_points=700,
+            ),
+        )
+
+        self.assertTrue(result.applied, result.reason)
+        self.assertAlmostEqual(result.table_height, 0.300, places=3)
+        self.assertEqual(result.camera_cloud.workspace_count, 800)
+        np.testing.assert_allclose(result.workspace_points, larger_object_plane)
+
     def test_negative_z_plane_normal_is_accepted_and_height_uses_inlier_median(self):
         config_type, assess_table_plane, _ = load_ransac_api(self)
         workspace_points = np.array(

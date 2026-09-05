@@ -194,10 +194,21 @@ def remove_table_plane(cloud, workspace_points, config):
     if point_count < config.min_points:
         return _fallback_result(cloud, workspace_array, "too_few_roi_points")
 
+    table_band_mask = (
+        (workspace_array[:, 2] >= config.table_height_min)
+        & (workspace_array[:, 2] <= config.table_height_max)
+    )
+    table_band_indices = np.flatnonzero(table_band_mask)
+    if table_band_indices.size >= config.min_points:
+        fit_indices = table_band_indices
+    else:
+        fit_indices = np.arange(point_count, dtype=np.int64)
+    fit_points = workspace_array[fit_indices]
+
     try:
         open3d_cloud = o3d.geometry.PointCloud()
         open3d_cloud.points = o3d.utility.Vector3dVector(
-            workspace_array.astype(np.float64, copy=False)
+            fit_points.astype(np.float64, copy=False)
         )
         plane_model, inlier_indices = open3d_cloud.segment_plane(
             distance_threshold=float(config.distance_threshold),
@@ -211,10 +222,25 @@ def remove_table_plane(cloud, workspace_points, config):
             "ransac_error: %s" % exc,
         )
 
+    fit_inlier_indices = np.asarray(inlier_indices, dtype=np.int64).reshape(-1)
+    if (
+        fit_inlier_indices.size == 0
+        or np.any(fit_inlier_indices < 0)
+        or np.any(fit_inlier_indices >= fit_indices.size)
+    ):
+        return _fallback_result(
+            cloud,
+            workspace_array,
+            "invalid_inliers",
+            tuple(float(value) for value in np.asarray(plane_model).reshape(-1)),
+            fit_inlier_indices.size,
+        )
+    workspace_inlier_indices = fit_indices[fit_inlier_indices]
+
     assessment = assess_table_plane(
         workspace_array,
         plane_model,
-        inlier_indices,
+        workspace_inlier_indices,
         config,
     )
     if not assessment.accepted:
