@@ -13,6 +13,13 @@ import numpy as np
 POINT_FIELD_UINT32 = 6
 POINT_FIELD_FLOAT32 = 7
 
+# AnyGrasp grasp frame G: +X approach, +Y opening, +Z orthogonal.
+# AG95 task TCP: +Z approach, +X opening, +Y orthogonal.
+AG95_TCP_ROTATION_FROM_GRASP = np.array(
+    [[0.0, 0.0, 1.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+    dtype=np.float64,
+)
+
 
 @dataclass(frozen=True)
 class FilteredCloud:
@@ -259,3 +266,13 @@ def grasp_axes(matrix: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """返回旋转矩阵三列：接近方向、夹爪开口方向、两者的正交方向。"""
     rotation = _proper_rotation(matrix)
     return rotation[:, 0].copy(), rotation[:, 1].copy(), rotation[:, 2].copy()
+
+
+def ag95_tcp_rotation_from_grasp(base_from_grasp: np.ndarray) -> np.ndarray:
+    """Compose ``base_from_tcp = base_from_grasp * grasp_from_tcp``.
+
+    This is an orientation-only conversion.  The grasp center is intentionally
+    not involved: the AG95's physical TCP offset belongs to its URDF/TF model,
+    not to the AnyGrasp target pose.
+    """
+    return _proper_rotation(base_from_grasp) @ AG95_TCP_ROTATION_FROM_GRASP

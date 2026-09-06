@@ -12,6 +12,7 @@ sys.path.insert(0, str(PACKAGE_ROOT / "src"))
 
 try:
     from anygrasp_ros.core import (  # noqa: E402
+        ag95_tcp_rotation_from_grasp,
         decode_packed_rgb,
         dynamic_point_bounds,
         grasp_axes,
@@ -229,6 +230,42 @@ class RotationConversionTest(unittest.TestCase):
         np.testing.assert_array_equal(approach, [0.0, 1.0, 0.0])
         np.testing.assert_array_equal(opening, [0.0, 0.0, 1.0])
         np.testing.assert_array_equal(orthogonal, [1.0, 0.0, 0.0])
+
+
+@unittest.skipIf(CORE_IMPORT_ERROR is not None, "core module not implemented")
+class Ag95TcpRotationTest(unittest.TestCase):
+    def test_identity_grasp_maps_ag95_tcp_axes_to_the_verified_anygrasp_axes(self):
+        tcp_rotation = ag95_tcp_rotation_from_grasp(np.eye(3, dtype=np.float64))
+
+        np.testing.assert_allclose(
+            tcp_rotation,
+            np.array(
+                [[0.0, 0.0, 1.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+                dtype=np.float64,
+            ),
+            atol=1e-7,
+        )
+        np.testing.assert_allclose(tcp_rotation[:, 0], [0.0, 1.0, 0.0], atol=1e-7)
+        np.testing.assert_allclose(tcp_rotation[:, 1], [0.0, 0.0, 1.0], atol=1e-7)
+        np.testing.assert_allclose(tcp_rotation[:, 2], [1.0, 0.0, 0.0], atol=1e-7)
+
+    def test_base_grasp_rotation_is_left_multiplied_by_fixed_grasp_to_tcp_mapping(self):
+        base_from_grasp = np.array(
+            [[0.0, -1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]],
+            dtype=np.float64,
+        )
+
+        tcp_rotation = ag95_tcp_rotation_from_grasp(base_from_grasp)
+
+        np.testing.assert_allclose(
+            tcp_rotation,
+            base_from_grasp
+            @ np.array(
+                [[0.0, 0.0, 1.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+                dtype=np.float64,
+            ),
+            atol=1e-7,
+        )
 
 
 if __name__ == "__main__":
