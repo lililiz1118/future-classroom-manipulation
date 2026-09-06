@@ -362,6 +362,8 @@ class YoloTargetCloudNode:
             workspace_selection.camera_cloud,
             workspace_selection.workspace_points,
             self._ransac_config,
+            table_frame=self._workspace_frame,
+            table_roi_xy=self._workspace_bounds[:4],
         )
         return PreprocessedCloud(
             stamp_ns=stamp_ns,

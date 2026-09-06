@@ -688,7 +688,13 @@ class ProcessCloudTest(unittest.TestCase):
             np.array([0x00FF0000, 0x0000FF00, 0x000000FF], dtype=np.uint32),
         )
 
-        def keep_two_after_ransac(cloud, workspace_points, unused_config):
+        def keep_two_after_ransac(
+            cloud, workspace_points, unused_config, **unused_geometry
+        ):
+            self.assertEqual(unused_geometry["table_frame"], "ur_arm_base_link")
+            self.assertEqual(
+                unused_geometry["table_roi_xy"], node._workspace_bounds[:4]
+            )
             return PlaneRemovalResult(
                 camera_cloud=FilteredCloud(
                     points=cloud.points[:2],

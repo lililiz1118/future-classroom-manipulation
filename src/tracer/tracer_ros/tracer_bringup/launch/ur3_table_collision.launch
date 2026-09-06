@@ -1,10 +1,27 @@
 <?xml version="1.0"?>
 <launch>
-  <arg name="table_collision_enabled" default="false"/>
+  <arg name="table_collision_enabled" default="true"/>
   <arg name="geometry_config_file"
        default="$(find anygrasp_ros)/config/anygrasp_d405.yaml"/>
   <arg name="config_file"
        default="$(find tracer_bringup)/config/table_collision.yaml"/>
+  <arg name="python_executable"
+       default="/home/jt001/.conda/envs/anygrasp/bin/python"/>
+  <arg name="table_surface_pose_topic" default="/table_surface_pose"/>
+  <arg name="table_detection_rate" default="1.0"/>
+
+  <node pkg="anygrasp_ros"
+        type="table_surface_publisher_node.py"
+        name="table_surface_publisher"
+        output="screen"
+        required="true"
+        launch-prefix="$(arg python_executable)"
+        if="$(arg table_collision_enabled)">
+    <rosparam command="load" file="$(arg geometry_config_file)"/>
+    <param name="python_executable" value="$(arg python_executable)"/>
+    <param name="table_surface_pose_topic" value="$(arg table_surface_pose_topic)"/>
+    <param name="table_detection_rate" value="$(arg table_detection_rate)"/>
+  </node>
 
   <node pkg="tracer_bringup"
         type="table_collision_updater.py"
@@ -16,5 +33,6 @@
     <rosparam command="load" file="$(arg geometry_config_file)"/>
     <rosparam command="load" file="$(arg config_file)"/>
     <param name="table_collision_enabled" value="$(arg table_collision_enabled)"/>
+    <param name="table_surface_pose_topic" value="$(arg table_surface_pose_topic)"/>
   </node>
 </launch>

@@ -247,7 +247,7 @@ class DetectionDrivenRuntimeTest(unittest.TestCase):
             camera_cloud=plane_result.camera_cloud,
             workspace_points=points,
         )
-        NODE_MODULE.remove_table_plane = lambda *_: (
+        NODE_MODULE.remove_table_plane = lambda *_, **__: (
             ransac_calls.append(True) or plane_result
         )
         cloud = cloud_message(10, 0)

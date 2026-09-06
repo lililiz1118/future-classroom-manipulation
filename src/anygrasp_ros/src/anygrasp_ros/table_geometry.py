@@ -16,6 +16,7 @@ class TableSurfaceGeometry:
     corners: np.ndarray
     rotation: np.ndarray
     quaternion: np.ndarray
+    frame_id: str = ""
 
 
 def _roi_values(roi_xy: Sequence[float]):
@@ -71,7 +72,7 @@ def table_basis(normal: Sequence[float]) -> np.ndarray:
 
 
 def table_surface_from_plane(
-    plane_model: Sequence[float], roi_xy: Sequence[float]
+    plane_model: Sequence[float], roi_xy: Sequence[float], frame_id: str = ""
 ) -> TableSurfaceGeometry:
     """Intersect a base-frame XY ROI with a plane and construct its surface pose."""
     plane = normalize_table_plane(plane_model)
@@ -102,6 +103,7 @@ def table_surface_from_plane(
         corners=corners,
         rotation=rotation,
         quaternion=rotation_matrix_to_quaternion(rotation),
+        frame_id=str(frame_id),
     )
 
 

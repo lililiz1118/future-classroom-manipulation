@@ -42,6 +42,12 @@ def build_argument_parser() -> argparse.ArgumentParser:
         help="run UR3, AG95, MoveIt and RViz without requiring or starting D405",
     )
     parser.add_argument(
+        "--no-table-collision",
+        action="store_false",
+        dest="enable_table_collision",
+        help="skip D405 table detection and the MoveIt table collision object",
+    )
+    parser.add_argument(
         "--driver-only",
         action="store_true",
         help="diagnose only the guarded UR driver control chain; skip AG95, D405, MoveIt and RViz",
@@ -104,6 +110,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             runtime_policy=runtime_policy,
             gripper_device=arguments.gripper_device,
             enable_d405=arguments.enable_d405 and not arguments.driver_only,
+            enable_table_collision=(
+                arguments.enable_table_collision
+                and arguments.enable_d405
+                and not arguments.driver_only
+            ),
             driver_only=arguments.driver_only,
             speed_slider=arguments.speed_slider,
             state_timeout=arguments.state_timeout,

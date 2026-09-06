@@ -1011,6 +1011,8 @@ class AnyGraspD405Node:
                     filtered,
                     selection.workspace_points,
                     self._ransac_config,
+                    table_frame=self._workspace_frame,
+                    table_roi_xy=self._workspace_bounds[:4],
                 ),
             )
             plane_text = (

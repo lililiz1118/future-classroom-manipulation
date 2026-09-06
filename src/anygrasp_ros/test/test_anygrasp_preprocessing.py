@@ -152,11 +152,21 @@ class RansacTablePlaneFilterTest(unittest.TestCase):
             make_cloud(camera_points, colors),
             workspace_points,
             make_ransac_config(config_type),
+            table_frame="ur_arm_base_link",
+            table_roi_xy=(-0.1, 0.1, 0.30, 0.50),
         )
 
         self.assertTrue(result.applied)
         self.assertTrue(hasattr(result, "plane_valid"), "plane validity is not exposed")
         self.assertTrue(result.plane_valid)
+        self.assertIsNotNone(result.table_geometry)
+        self.assertEqual(result.table_geometry.frame_id, "ur_arm_base_link")
+        np.testing.assert_allclose(
+            result.table_geometry.normal, [0.0, 0.0, 1.0], atol=1e-6
+        )
+        np.testing.assert_allclose(
+            result.table_geometry.center, [0.0, 0.4, 0.24], atol=1e-6
+        )
         self.assertEqual(result.inlier_count, table.shape[0])
         self.assertAlmostEqual(result.inlier_ratio, 400.0 / 440.0, places=6)
         self.assertAlmostEqual(result.table_height, 0.24, places=5)
@@ -264,6 +274,7 @@ class RansacTablePlaneFilterTest(unittest.TestCase):
         self.assertEqual(result.reason, "normal_angle")
         self.assertTrue(hasattr(result, "plane_valid"), "plane validity is not exposed")
         self.assertFalse(result.plane_valid)
+        self.assertIsNone(result.table_geometry)
         self.assertIsNotNone(result.plane_model)
         self.assertIsNotNone(result.table_height)
         np.testing.assert_array_equal(result.camera_cloud.points, cloud.points)

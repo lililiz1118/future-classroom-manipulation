@@ -28,6 +28,7 @@ class StartupConfig:
     runtime_policy: UrRuntimePolicy
     gripper_device: str = "/dev/dh_gripper_usb"
     enable_d405: bool = True
+    enable_table_collision: bool = True
     driver_only: bool = False
     speed_slider: float = 0.05
     state_timeout: float = 30.0
@@ -36,6 +37,8 @@ class StartupConfig:
     def __post_init__(self):
         if not 0.0 < self.speed_slider <= 0.10:
             raise ValueError("speed_slider must be in (0, 0.10]")
+        if not self.enable_d405 or self.driver_only:
+            object.__setattr__(self, "enable_table_collision", False)
 
 
 def validate_calibration(path: str, expected_hash: str) -> str:
@@ -193,6 +196,10 @@ class StartupCoordinator:
             self.runtime.start_move_group(self.config)
             self.runtime.wait_move_group_ready(self.config)
             self.output("🧭 MoveIt 已就绪")
+            if self.config.enable_table_collision:
+                self.runtime.start_table_collision(self.config)
+                self.runtime.wait_table_collision_ready(self.config)
+                self.output("🪵 桌面碰撞体已加入 Planning Scene")
             self.runtime.start_rviz(self.config)
             self.output("🖥️ RViz 进程已启动，等待窗口显示")
             self.output("✅ 核心服务已就绪，RViz 正在启动")

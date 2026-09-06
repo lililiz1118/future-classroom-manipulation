@@ -18,6 +18,8 @@ catkin_package(
 install(PROGRAMS
   scripts/anygrasp_d405_node.py
   scripts/best_grasp_tcp_node.py
+  scripts/table_surface_publisher_node.py
+  scripts/tcp_to_wrist_goal_node.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 
@@ -31,5 +33,6 @@ install(DIRECTORY src/anygrasp_ros
 
 if(CATKIN_ENABLE_TESTING)
   catkin_add_nosetests(test/test_table_geometry.py)
+  catkin_add_nosetests(test/test_table_surface_publisher.py)
   catkin_add_nosetests(test/test_runtime_resources.py)
 endif()

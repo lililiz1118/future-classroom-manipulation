@@ -187,6 +187,13 @@ class HeadlessCliTest(unittest.TestCase):
         self.assertTrue(parser.parse_args([]).enable_d405)
         self.assertFalse(parser.parse_args(["--no-d405"]).enable_d405)
 
+    def test_table_collision_is_enabled_by_default_and_can_be_disabled(self):
+        parser = build_argument_parser()
+        self.assertTrue(parser.parse_args([]).enable_table_collision)
+        self.assertFalse(
+            parser.parse_args(["--no-table-collision"]).enable_table_collision
+        )
+
     def test_driver_only_is_explicit_and_disables_d405_in_startup_config(self):
         observed = []
 
@@ -211,6 +218,31 @@ class HeadlessCliTest(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         self.assertTrue(observed[0].driver_only)
         self.assertFalse(observed[0].enable_d405)
+        self.assertFalse(observed[0].enable_table_collision)
+
+    def test_no_d405_also_disables_table_collision_in_startup_config(self):
+        observed = []
+
+        def capture(coordinator):
+            observed.append(coordinator.config)
+
+        with mock.patch(
+            "tracer_bringup.headless_cli.StartupCoordinator.run",
+            autospec=True,
+            side_effect=capture,
+        ):
+            exit_code = main(
+                [
+                    "--calibration",
+                    "/tmp/test-calibration.yaml",
+                    "--runtime-config",
+                    RUNTIME_POLICY_PATH,
+                    "--no-d405",
+                ]
+            )
+
+        self.assertEqual(exit_code, 0)
+        self.assertFalse(observed[0].enable_table_collision)
 
 if __name__ == "__main__":
     unittest.main()

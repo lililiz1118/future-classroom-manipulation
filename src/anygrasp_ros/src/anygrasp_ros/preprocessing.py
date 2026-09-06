@@ -7,6 +7,7 @@ import numpy as np
 import open3d as o3d
 
 from anygrasp_ros.core import FilteredCloud
+from anygrasp_ros.table_geometry import TableSurfaceGeometry, table_surface_from_plane
 
 
 @dataclass(frozen=True)
@@ -83,6 +84,7 @@ class PlaneRemovalResult:
     table_height: Optional[float]
     normal_angle_deg: Optional[float]
     plane_valid: bool = False
+    table_geometry: Optional[TableSurfaceGeometry] = None
 
 
 def _fallback_result(
@@ -95,6 +97,7 @@ def _fallback_result(
     table_height=None,
     normal_angle_deg=None,
     plane_valid=False,
+    table_geometry=None,
 ):
     return PlaneRemovalResult(
         camera_cloud=cloud,
@@ -107,6 +110,7 @@ def _fallback_result(
         table_height=table_height,
         normal_angle_deg=normal_angle_deg,
         plane_valid=bool(plane_valid),
+        table_geometry=table_geometry,
     )
 
 
@@ -170,7 +174,13 @@ def assess_table_plane(workspace_points, plane_model, inlier_indices, config):
     )
 
 
-def remove_table_plane(cloud, workspace_points, config):
+def remove_table_plane(
+    cloud,
+    workspace_points,
+    config,
+    table_frame="",
+    table_roi_xy=None,
+):
     """Remove one plausible table plane while preserving XYZ/RGB alignment.
 
     Open3D fits the base-frame ROI points.  The resulting boolean keep mask is
@@ -258,6 +268,31 @@ def remove_table_plane(cloud, workspace_points, config):
             assessment.normal_angle_deg,
         )
 
+    if table_roi_xy is None:
+        table_roi_xy = (
+            float(np.min(workspace_array[:, 0])),
+            float(np.max(workspace_array[:, 0])),
+            float(np.min(workspace_array[:, 1])),
+            float(np.max(workspace_array[:, 1])),
+        )
+    try:
+        table_geometry = table_surface_from_plane(
+            assessment.plane_model,
+            table_roi_xy,
+            frame_id=table_frame,
+        )
+    except (TypeError, ValueError) as exc:
+        return _fallback_result(
+            cloud,
+            workspace_array,
+            "invalid_table_geometry: %s" % exc,
+            assessment.plane_model,
+            assessment.inlier_count,
+            assessment.inlier_ratio,
+            assessment.table_height,
+            assessment.normal_angle_deg,
+        )
+
     keep_mask = np.ones(point_count, dtype=bool)
     keep_mask[assessment.inlier_indices] = False
     object_count = int(np.count_nonzero(keep_mask))
@@ -272,6 +307,7 @@ def remove_table_plane(cloud, workspace_points, config):
             assessment.table_height,
             assessment.normal_angle_deg,
             plane_valid=True,
+            table_geometry=table_geometry,
         )
 
     filtered_cloud = FilteredCloud(
@@ -292,6 +328,7 @@ def remove_table_plane(cloud, workspace_points, config):
         table_height=assessment.table_height,
         normal_angle_deg=assessment.normal_angle_deg,
         plane_valid=True,
+        table_geometry=table_geometry,
     )
 
 

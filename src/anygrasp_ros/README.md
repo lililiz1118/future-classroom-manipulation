@@ -41,6 +41,22 @@ roslaunch anygrasp_ros best_grasp_tcp.launch
 
 `gripper_base_link -> ag95_tcp` 的 0.175 m 是机器人 URDF 中物理 TCP 的固定 TF，绝不能在此节点对 `/best_grasp_tcp` 的 position 重复加入偏移。
 
+同一节点还会发布 `/anygrasp/pre_grasp_tcp`。它的 orientation 与
+`/anygrasp/best_grasp_tcp` 完全相同，position 使用 TCP 局部 +Z 轴计算：
+`p_pre = p_grasp - pregrasp_distance * z_TCP`。默认
+`pregrasp_distance` 为 0.08 m，必须是有限正数。`/anygrasp/pre_grasp_markers`
+会显示 pre-grasp TCP、grasp TCP，以及从 pre-grasp 指向 grasp 的 approach 箭头。
+
+## MoveIt wrist 目标几何桥接
+
+`tcp_to_wrist_goal.launch` 是独立的只读 TF 几何节点。它把
+`/anygrasp/best_grasp_tcp` 和 `/anygrasp/pre_grasp_tcp` 转成当前 MoveIt
+endpoint `ur_arm_wrist_3_link` 的 `/anygrasp/grasp_wrist_goal` 和
+`/anygrasp/pre_grasp_wrist_goal`。每次均从 TF 查询
+`base_link <- ur_arm_base_link` 与 `ur_arm_wrist_3_link <- ag95_tcp`，计算
+`T_base_wrist = T_base_urbase @ T_urbase_tcp @ inverse(T_wrist_tcp)`；不包含
+任何 AG95、tool 或 TCP 偏移硬编码，也不会发布目标 TF 或执行运动。
+
 若点云时间戳对应的 TF 不可用，节点会跳过该帧，不会退回到相机坐标系 ROI。当前 ROI 位于 `ur_arm_base_link`，边界和话题名统一配置在 `config/anygrasp_d405.yaml`。
 
 模型、点云、ROI 和推理参数位于 `config/anygrasp_d405.yaml`。CPU 资源只在
@@ -89,3 +105,20 @@ AnyGrasp 与 UR3 启动器保持进程和 launch 解耦。UR3 控制链一旦进
 `move_group` 会被停止，新 Execute 被禁止；AnyGrasp 节点仍可能继续发布感知结果，
 但这些结果不代表运动控制链健康，也不得用于继续执行。必须完整重启 UR3 控制链并
 重新达到 READY。
+
+## 独立桌面几何
+
+`table_surface_publisher_node.py` 是机械臂基础桌面几何的数据源。它订阅
+`/d405/depth/color/points`，把限频后的点云通过 TF 转到
+`ur_arm_base_link`，复用 `anygrasp_ros.preprocessing` 中的 ROI 和 RANSAC，
+并把有效桌面位姿发布到 `/table_surface_pose`。默认检测频率为 1 Hz；单帧
+检测失败时不发布错误结果，也不替换上一次锁存的有效位姿。
+
+该节点不会加载 AnyGrasp 神经网络、checkpoint、CUDA 或 YOLO World。
+`/table_surface_pose` 是 MoveIt 桌面碰撞体的统一中立话题；旧的
+`/yolo_world/table_surface_pose` 不属于 MoveIt 默认启动链。
+
+默认运行 `ur3_moveit_headless.sh` 会在 D405 和 MoveIt 就绪后启动桌面发布器
+与碰撞更新器，并等待 `table_surface` 出现在 Planning Scene 后再启动 RViz。
+调试时可传入 `--no-table-collision` 关闭整条桌面链。桌面状态超过 5 秒未更新
+会标记为 stale，但已有碰撞体不会因偶发 RANSAC 失败而被删除。

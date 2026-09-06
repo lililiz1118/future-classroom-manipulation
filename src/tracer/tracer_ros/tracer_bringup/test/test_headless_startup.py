@@ -101,6 +101,12 @@ class FakeRuntime:
     def wait_move_group_ready(self, config):
         self._event("move_group_ready")
 
+    def start_table_collision(self, config):
+        self._event("start_table_collision")
+
+    def wait_table_collision_ready(self, config):
+        self._event("table_collision_ready")
+
     def start_rviz(self, config):
         self._event("start_rviz")
 
@@ -189,6 +195,7 @@ class StartupCoordinatorTest(unittest.TestCase):
         )
         self.assertEqual(startup_config.gripper_device, "/dev/dh_gripper_usb")
         self.assertTrue(startup_config.enable_d405)
+        self.assertTrue(startup_config.enable_table_collision)
         self.assertFalse(startup_config.driver_only)
 
     def test_confirmation_rejection_has_no_mutating_side_effect(self):
@@ -272,6 +279,8 @@ class StartupCoordinatorTest(unittest.TestCase):
                 "set_speed:0.05",
                 "start_move_group",
                 "move_group_ready",
+                "start_table_collision",
+                "table_collision_ready",
                 "start_rviz",
                 "supervise",
                 "shutdown",
@@ -299,6 +308,7 @@ class StartupCoordinatorTest(unittest.TestCase):
                 "📷 D405 相机已就绪",
                 "🐢 速度已限制为 5%",
                 "🧭 MoveIt 已就绪",
+                "🪵 桌面碰撞体已加入 Planning Scene",
                 "🖥️ RViz 进程已启动，等待窗口显示",
                 "✅ 核心服务已就绪，RViz 正在启动",
             ],
@@ -327,6 +337,25 @@ class StartupCoordinatorTest(unittest.TestCase):
 
         self.assertNotIn("start_d405", runtime.events)
         self.assertNotIn("d405_ready", runtime.events)
+        self.assertNotIn("start_table_collision", runtime.events)
+        self.assertNotIn("table_collision_ready", runtime.events)
+
+    def test_disabled_table_collision_skips_table_runtime_calls(self):
+        disabled = config()
+        object.__setattr__(disabled, "enable_table_collision", False)
+        runtime = FakeRuntime()
+        coordinator = StartupCoordinator(
+            FakeDashboard(RobotStatus("RUNNING", "NORMAL")),
+            runtime,
+            disabled,
+            confirm=lambda _: True,
+            output=lambda _: None,
+        )
+
+        coordinator.run()
+
+        self.assertNotIn("start_table_collision", runtime.events)
+        self.assertNotIn("table_collision_ready", runtime.events)
 
     def test_driver_only_runs_only_the_guarded_control_chain(self):
         dashboard = FakeDashboard(RobotStatus("RUNNING", "NORMAL"))

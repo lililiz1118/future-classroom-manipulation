@@ -101,7 +101,7 @@ class TableCollisionUpdater:
         self._xy_margin = float(rospy.get_param("~table_xy_margin"))
         self._input_topic = str(
             rospy.get_param(
-                "~table_surface_pose_topic", "/yolo_world/table_surface_pose"
+                "~table_surface_pose_topic", "/table_surface_pose"
             )
         )
         self._stable_pose_topic = str(rospy.get_param("~stable_table_pose_topic"))

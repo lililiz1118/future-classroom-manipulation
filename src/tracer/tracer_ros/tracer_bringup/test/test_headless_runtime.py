@@ -292,6 +292,7 @@ class LaunchOutputTest(unittest.TestCase):
             ("ag95_gripper", FakeProcess("ag95_gripper", 1002)),
             ("d405_camera", FakeProcess("d405_camera", 1003)),
             ("move_group", FakeProcess("move_group", 1004)),
+            ("table_collision", FakeProcess("table_collision", 1006)),
             ("rviz", FakeProcess("rviz", 1005)),
         ]
 
@@ -300,6 +301,10 @@ class LaunchOutputTest(unittest.TestCase):
 
         with mock.patch.object(
             runtime, "_signal_process_group", side_effect=record_signal
+        ), mock.patch.object(
+            RosRuntime,
+            "_process_group_is_running",
+            side_effect=lambda process: process.running,
         ):
             runtime.shutdown()
 
@@ -308,6 +313,8 @@ class LaunchOutputTest(unittest.TestCase):
             [
                 ("signal", "rviz", signal.SIGINT),
                 ("wait", "rviz"),
+                ("signal", "table_collision", signal.SIGINT),
+                ("wait", "table_collision"),
                 ("signal", "move_group", signal.SIGINT),
                 ("wait", "move_group"),
                 ("signal", "d405_camera", signal.SIGINT),
@@ -371,6 +378,41 @@ class D405LaunchOwnershipTest(unittest.TestCase):
             runtime.shutdown()
 
         killpg.assert_called_once_with(4321, signal.SIGINT)
+
+
+class TableCollisionLaunchOwnershipTest(unittest.TestCase):
+    def test_enabled_table_chain_uses_dedicated_launch(self):
+        class RecordingRuntime(RosRuntime):
+            def __init__(self):
+                super().__init__(environment={})
+                self.launch = None
+
+            def _launch(self, label, command):
+                self.launch = (label, list(command))
+
+        runtime = RecordingRuntime()
+        runtime.start_table_collision(D405LaunchOwnershipTest.config())
+
+        self.assertEqual(
+            runtime.launch,
+            (
+                "table_collision",
+                [
+                    "roslaunch",
+                    "tracer_bringup",
+                    "ur3_table_collision.launch",
+                    "table_collision_enabled:=true",
+                ],
+            ),
+        )
+
+    def test_disabled_table_chain_is_not_started(self):
+        runtime = RosRuntime(environment={})
+        runtime._launch = lambda *_: self.fail("must not launch table chain")
+        disabled = D405LaunchOwnershipTest.config()
+        object.__setattr__(disabled, "enable_table_collision", False)
+
+        runtime.start_table_collision(disabled)
 
 
 class DriverLaunchPolicyTest(unittest.TestCase):

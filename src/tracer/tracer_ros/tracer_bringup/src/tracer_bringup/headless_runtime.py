@@ -45,6 +45,8 @@ CONFLICTING_NODES = {
     "/dh_gripper_driver",
     "/gripper_joint_state_relay",
     "/joint_state_aggregator",
+    "/table_surface_publisher",
+    "/table_collision_updater",
 }
 D405_NODES = {
     "/d405/realsense2_camera",
@@ -67,6 +69,7 @@ COMPONENT_NAMES = {
     "d405_camera": "D405 相机",
     "move_group": "MoveIt",
     "rviz": "RViz",
+    "table_collision": "桌面碰撞",
 }
 ERROR_MARKERS = (
     "ERROR",
@@ -86,6 +89,7 @@ SHUTDOWN_SIGKILL_TIMEOUT = 1.0
 CONTROLLER_SPAWNER_NODE = "/ur/ros_control_controller_spawner"
 SHUTDOWN_PROCESS_ORDER = (
     "rviz",
+    "table_collision",
     "move_group",
     "d405_camera",
     "ag95_gripper",
@@ -306,6 +310,7 @@ class RosRuntime:
         assert_route_uses_reverse_ip(route.stdout, config.reverse_ip)
         for package in (
             "tracer_bringup",
+            "anygrasp_ros",
             "ur_robot_driver",
             "moveit_config",
             "dh_gripper_driver",
@@ -711,6 +716,55 @@ class RosRuntime:
         self._launch(
             "move_group",
             ["roslaunch", "tracer_bringup", "ur3_moveit_execution.launch"],
+        )
+
+    def start_table_collision(self, config: StartupConfig) -> None:
+        if not config.enable_table_collision:
+            return
+        self._launch(
+            "table_collision",
+            [
+                "roslaunch",
+                "tracer_bringup",
+                "ur3_table_collision.launch",
+                "table_collision_enabled:=true",
+            ],
+        )
+
+    def wait_table_collision_ready(self, config: StartupConfig) -> None:
+        if not config.enable_table_collision:
+            return
+        from geometry_msgs.msg import PoseStamped
+        from moveit_msgs.msg import PlanningSceneComponents
+        from moveit_msgs.srv import GetPlanningScene, GetPlanningSceneRequest
+
+        self._wait_for_matching_message(
+            "/table_surface_pose",
+            PoseStamped,
+            config.state_timeout,
+            lambda message: message.header.frame_id == "ur_arm_base_link",
+            lambda _last: (
+                "Timed out waiting for /table_surface_pose in ur_arm_base_link"
+            ),
+        )
+        self._wait_for_service_with_health(
+            "/get_planning_scene", config.state_timeout
+        )
+        request = GetPlanningSceneRequest()
+        request.components.components = PlanningSceneComponents.WORLD_OBJECT_GEOMETRY
+        service = self._rospy.ServiceProxy("/get_planning_scene", GetPlanningScene)
+        deadline = time.monotonic() + config.state_timeout
+        while time.monotonic() < deadline:
+            self._raise_if_control_fault()
+            response = service(request)
+            if any(
+                collision.id == "table_surface"
+                for collision in response.scene.world.collision_objects
+            ):
+                return
+            time.sleep(0.10)
+        raise StartupError(
+            "Timed out waiting for table_surface in the MoveIt Planning Scene"
         )
 
     def wait_move_group_ready(self, config: StartupConfig) -> None:
