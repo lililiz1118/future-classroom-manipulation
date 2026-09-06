@@ -22,6 +22,25 @@ roslaunch anygrasp_ros anygrasp_d405.launch
 - `/anygrasp/input_cloud`：SOR 后、实际送入 AnyGrasp 的相机坐标系点云；
 - `/anygrasp/grasp_markers`：候选抓姿的 RViz `MarkerArray`。
 
+## AG95 TCP 姿态调试
+
+在 AnyGrasp 感知节点运行后，可另开终端运行：
+
+```bash
+cd /home/jt001/tracer_ws/.worktrees/ur3-headless-moveit
+source /opt/ros/noetic/setup.bash
+source devel/setup.bash
+roslaunch anygrasp_ros best_grasp_tcp.launch
+```
+
+这个独立节点只订阅并转换姿态，不包含 MoveIt、IK、UR、轨迹或夹爪控制：
+
+- 输入 `/anygrasp/best_grasp_base` 必须是 `ur_arm_base_link`；其他 frame 会 warning 并被丢弃；
+- 输出 `/anygrasp/best_grasp_tcp` 保留相同的抓取中心、时间戳和 frame，只按 `G +X/+Y/+Z -> TCP +Z/+X/+Y` 转换方向；
+- `/anygrasp/best_grasp_tcp_markers` 同时绘制 AnyGrasp G（较长）与目标 AG95 TCP（较短）RGB 坐标轴，方便在 RViz 的 `MarkerArray` display 中核对映射。
+
+`gripper_base_link -> ag95_tcp` 的 0.175 m 是机器人 URDF 中物理 TCP 的固定 TF，绝不能在此节点对 `/best_grasp_tcp` 的 position 重复加入偏移。
+
 若点云时间戳对应的 TF 不可用，节点会跳过该帧，不会退回到相机坐标系 ROI。当前 ROI 位于 `ur_arm_base_link`，边界和话题名统一配置在 `config/anygrasp_d405.yaml`。
 
 模型、点云、ROI 和推理参数位于 `config/anygrasp_d405.yaml`。CPU 资源只在
