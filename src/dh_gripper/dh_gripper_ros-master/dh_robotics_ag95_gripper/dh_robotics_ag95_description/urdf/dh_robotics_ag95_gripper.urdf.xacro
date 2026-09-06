@@ -31,6 +31,17 @@
                          izx = "0.000000" izy = "0.000000" izz = "0.001498" />
             </inertial>
         </link>
+        
+        <!-- Task TCP at the nominal AG95 grasp center.
+             +Z points from gripper base toward the fingers.
+             Initial measured offset: 175 mm. -->
+        <link name="${prefix}ag95_tcp"/>
+
+        <joint name="${prefix}ag95_tcp_joint" type="fixed">
+            <parent link="${prefix}gripper_base_link"/>
+            <child link="${prefix}ag95_tcp"/>
+            <origin xyz="0 0 0.175" rpy="0 0 0"/>
+        </joint>
 
         <gazebo reference="${prefix}gripper_base_link">
             <implicitSpringDamper>1</implicitSpringDamper>
