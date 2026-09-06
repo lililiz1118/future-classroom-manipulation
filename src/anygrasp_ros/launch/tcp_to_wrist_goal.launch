@@ -1,0 +1,19 @@
+<launch>
+  <arg name="grasp_input_topic" default="/anygrasp/best_grasp_tcp"/>
+  <arg name="pregrasp_input_topic" default="/anygrasp/pre_grasp_tcp"/>
+  <arg name="grasp_output_topic" default="/anygrasp/grasp_wrist_goal"/>
+  <arg name="pregrasp_output_topic" default="/anygrasp/pre_grasp_wrist_goal"/>
+  <arg name="marker_topic" default="/anygrasp/tcp_wrist_goal_markers"/>
+
+  <!-- TF geometry only: no MoveIt, IK, robot, gripper, or controller launch. -->
+  <node pkg="anygrasp_ros"
+        type="tcp_to_wrist_goal_node.py"
+        name="tcp_to_wrist_goal_node"
+        output="screen">
+    <param name="grasp_input_topic" value="$(arg grasp_input_topic)"/>
+    <param name="pregrasp_input_topic" value="$(arg pregrasp_input_topic)"/>
+    <param name="grasp_output_topic" value="$(arg grasp_output_topic)"/>
+    <param name="pregrasp_output_topic" value="$(arg pregrasp_output_topic)"/>
+    <param name="marker_topic" value="$(arg marker_topic)"/>
+  </node>
+</launch>

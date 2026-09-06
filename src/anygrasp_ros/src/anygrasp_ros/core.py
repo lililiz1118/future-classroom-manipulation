@@ -276,3 +276,60 @@ def ag95_tcp_rotation_from_grasp(base_from_grasp: np.ndarray) -> np.ndarray:
     not to the AnyGrasp target pose.
     """
     return _proper_rotation(base_from_grasp) @ AG95_TCP_ROTATION_FROM_GRASP
+
+
+def compute_pregrasp_position(
+    grasp_position: np.ndarray,
+    base_from_tcp_rotation: np.ndarray,
+    retreat_distance: float,
+) -> np.ndarray:
+    """Return the TCP position displaced opposite its local +Z approach axis."""
+    position = np.asarray(grasp_position, dtype=np.float64)
+    if position.shape != (3,) or not np.isfinite(position).all():
+        raise ValueError("grasp_position must be a finite length-3 vector")
+    distance = float(retreat_distance)
+    if not np.isfinite(distance) or distance <= 0.0:
+        raise ValueError("retreat_distance must be finite and positive")
+    rotation = _proper_rotation(base_from_tcp_rotation)
+    return position - distance * rotation[:, 2]
+
+
+def _rigid_transform(matrix: np.ndarray, name: str) -> np.ndarray:
+    """Validate and normalize one homogeneous rigid transform."""
+    transform = np.asarray(matrix, dtype=np.float64)
+    if transform.shape != (4, 4) or not np.isfinite(transform).all():
+        raise ValueError(name + " must be a finite 4x4 transform")
+    if not np.allclose(transform[3], [0.0, 0.0, 0.0, 1.0], atol=1e-8):
+        raise ValueError(name + " must have homogeneous last row [0, 0, 0, 1]")
+    normalized = np.eye(4, dtype=np.float64)
+    normalized[:3, :3] = _proper_rotation(transform[:3, :3])
+    normalized[:3, 3] = transform[:3, 3]
+    return normalized
+
+
+def compute_wrist_goal_transform(
+    base_from_urbase: np.ndarray,
+    urbase_from_tcp_goal: np.ndarray,
+    wrist_from_tcp: np.ndarray,
+) -> np.ndarray:
+    """Solve ``base_from_wrist_goal`` from a TCP goal and fixed robot TFs."""
+    base_from_urbase = _rigid_transform(base_from_urbase, "base_from_urbase")
+    urbase_from_tcp_goal = _rigid_transform(
+        urbase_from_tcp_goal, "urbase_from_tcp_goal"
+    )
+    wrist_from_tcp = _rigid_transform(wrist_from_tcp, "wrist_from_tcp")
+    return (
+        base_from_urbase
+        @ urbase_from_tcp_goal
+        @ np.linalg.inv(wrist_from_tcp)
+    )
+
+
+def reconstruct_tcp_goal_transform(
+    base_from_wrist_goal: np.ndarray,
+    wrist_from_tcp: np.ndarray,
+) -> np.ndarray:
+    """Reconnect a wrist goal to its fixed TCP transform for validation."""
+    return _rigid_transform(
+        base_from_wrist_goal, "base_from_wrist_goal"
+    ) @ _rigid_transform(wrist_from_tcp, "wrist_from_tcp")

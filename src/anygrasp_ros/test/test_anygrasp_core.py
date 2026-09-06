@@ -13,10 +13,13 @@ sys.path.insert(0, str(PACKAGE_ROOT / "src"))
 try:
     from anygrasp_ros.core import (  # noqa: E402
         ag95_tcp_rotation_from_grasp,
+        compute_wrist_goal_transform,
+        compute_pregrasp_position,
         decode_packed_rgb,
         dynamic_point_bounds,
         grasp_axes,
         rotation_matrix_to_quaternion,
+        reconstruct_tcp_goal_transform,
         select_finite_cloud,
         select_workspace,
         transform_points,
@@ -266,6 +269,130 @@ class Ag95TcpRotationTest(unittest.TestCase):
             ),
             atol=1e-7,
         )
+
+
+@unittest.skipIf(CORE_IMPORT_ERROR is not None, "core module not implemented")
+class PregraspPositionTest(unittest.TestCase):
+    def test_identity_tcp_retracts_along_base_negative_z(self):
+        pregrasp = compute_pregrasp_position(
+            grasp_position=np.array([1.0, 2.0, 3.0]),
+            base_from_tcp_rotation=np.eye(3, dtype=np.float64),
+            retreat_distance=0.08,
+        )
+
+        np.testing.assert_allclose(pregrasp, [1.0, 2.0, 2.92], atol=1e-7)
+
+    def test_rotated_tcp_retracts_along_its_local_positive_z_expressed_in_base(self):
+        base_from_tcp_rotation = np.array(
+            [[0.0, 0.0, 1.0], [0.0, 1.0, 0.0], [-1.0, 0.0, 0.0]],
+            dtype=np.float64,
+        )
+
+        pregrasp = compute_pregrasp_position(
+            grasp_position=np.array([1.0, 2.0, 3.0]),
+            base_from_tcp_rotation=base_from_tcp_rotation,
+            retreat_distance=0.08,
+        )
+
+        np.testing.assert_allclose(pregrasp, [0.92, 2.0, 3.0], atol=1e-7)
+
+    def test_retreat_vector_has_requested_length_and_tcp_positive_z_direction(self):
+        base_from_tcp_rotation = np.array(
+            [[0.0, -1.0, 0.0], [0.0, 0.0, -1.0], [1.0, 0.0, 0.0]],
+            dtype=np.float64,
+        )
+        grasp = np.array([0.4, -0.5, 0.6], dtype=np.float64)
+        distance = 0.08
+
+        pregrasp = compute_pregrasp_position(
+            grasp_position=grasp,
+            base_from_tcp_rotation=base_from_tcp_rotation,
+            retreat_distance=distance,
+        )
+
+        retreat = grasp - pregrasp
+        self.assertAlmostEqual(float(np.linalg.norm(retreat)), distance, places=7)
+        np.testing.assert_allclose(
+            retreat / distance,
+            base_from_tcp_rotation[:, 2],
+            atol=1e-7,
+        )
+
+    def test_nonfinite_or_nonpositive_retreat_distance_is_rejected(self):
+        for distance in (np.nan, np.inf, -np.inf, -0.01, 0.0):
+            with self.subTest(distance=distance), self.assertRaisesRegex(
+                ValueError, "retreat_distance"
+            ):
+                compute_pregrasp_position(
+                    grasp_position=np.zeros(3),
+                    base_from_tcp_rotation=np.eye(3),
+                    retreat_distance=distance,
+                )
+
+
+@unittest.skipIf(CORE_IMPORT_ERROR is not None, "core module not implemented")
+class WristGoalTransformTest(unittest.TestCase):
+    def test_identity_rotations_subtract_wrist_to_tcp_translation(self):
+        base_from_urbase = np.eye(4, dtype=np.float64)
+        urbase_from_tcp = np.eye(4, dtype=np.float64)
+        urbase_from_tcp[:3, 3] = [1.0, 2.0, 3.0]
+        wrist_from_tcp = np.eye(4, dtype=np.float64)
+        wrist_from_tcp[:3, 3] = [0.1, 0.2, 0.3]
+
+        base_from_wrist = compute_wrist_goal_transform(
+            base_from_urbase, urbase_from_tcp, wrist_from_tcp
+        )
+
+        np.testing.assert_allclose(base_from_wrist[:3, 3], [0.9, 1.8, 2.7], atol=1e-7)
+        np.testing.assert_allclose(base_from_wrist[:3, :3], np.eye(3), atol=1e-7)
+
+    def test_nonidentity_base_and_wrist_transforms_produce_hand_derived_wrist_goal(self):
+        base_from_urbase = np.array(
+            [[0.0, -1.0, 0.0, 1.0], [1.0, 0.0, 0.0, 2.0], [0.0, 0.0, 1.0, 3.0], [0.0, 0.0, 0.0, 1.0]],
+            dtype=np.float64,
+        )
+        urbase_from_tcp = np.array(
+            [[1.0, 0.0, 0.0, 0.4], [0.0, 0.0, -1.0, 0.5], [0.0, 1.0, 0.0, 0.6], [0.0, 0.0, 0.0, 1.0]],
+            dtype=np.float64,
+        )
+        wrist_from_tcp = np.array(
+            [[0.0, 0.0, 1.0, 0.1], [0.0, 1.0, 0.0, 0.2], [-1.0, 0.0, 0.0, 0.3], [0.0, 0.0, 0.0, 1.0]],
+            dtype=np.float64,
+        )
+
+        base_from_wrist = compute_wrist_goal_transform(
+            base_from_urbase, urbase_from_tcp, wrist_from_tcp
+        )
+
+        np.testing.assert_allclose(
+            base_from_wrist,
+            np.array(
+                [[1.0, 0.0, 0.0, 0.4], [0.0, 0.0, -1.0, 2.7], [0.0, 1.0, 0.0, 3.4], [0.0, 0.0, 0.0, 1.0]],
+                dtype=np.float64,
+            ),
+            atol=1e-7,
+        )
+
+    def test_round_trip_reconstructs_original_base_tcp_transform(self):
+        base_from_urbase = np.array(
+            [[0.0, -1.0, 0.0, 1.0], [1.0, 0.0, 0.0, 2.0], [0.0, 0.0, 1.0, 3.0], [0.0, 0.0, 0.0, 1.0]],
+            dtype=np.float64,
+        )
+        urbase_from_tcp = np.array(
+            [[1.0, 0.0, 0.0, 0.4], [0.0, 0.0, -1.0, 0.5], [0.0, 1.0, 0.0, 0.6], [0.0, 0.0, 0.0, 1.0]],
+            dtype=np.float64,
+        )
+        wrist_from_tcp = np.array(
+            [[0.0, 0.0, 1.0, 0.1], [0.0, 1.0, 0.0, 0.2], [-1.0, 0.0, 0.0, 0.3], [0.0, 0.0, 0.0, 1.0]],
+            dtype=np.float64,
+        )
+
+        base_from_wrist = compute_wrist_goal_transform(
+            base_from_urbase, urbase_from_tcp, wrist_from_tcp
+        )
+        reconstructed = reconstruct_tcp_goal_transform(base_from_wrist, wrist_from_tcp)
+
+        np.testing.assert_allclose(reconstructed, base_from_urbase @ urbase_from_tcp, atol=1e-7)
 
 
 if __name__ == "__main__":
