@@ -45,6 +45,9 @@ def make_node():
     node._axis_length = 0.08
     node._pose_publisher = CapturePublisher()
     node._marker_publisher = CapturePublisher()
+    node._pregrasp_publisher = CapturePublisher()
+    node._pregrasp_marker_publisher = CapturePublisher()
+    node._pregrasp_distance = 0.08
     node._marker_lifetime = rospy.Duration(0)
     return node
 
@@ -84,6 +87,20 @@ class BestGraspTcpNodeTest(unittest.TestCase):
             [0.5, 0.5, 0.5, 0.5],
             atol=1e-7,
         )
+        self.assertEqual(len(node._pregrasp_publisher.messages), 1)
+        pregrasp = node._pregrasp_publisher.messages[0]
+        self.assertEqual(pregrasp.header.frame_id, "ur_arm_base_link")
+        self.assertEqual(pregrasp.header.stamp, incoming.header.stamp)
+        np.testing.assert_allclose(
+            [
+                pregrasp.pose.position.x,
+                pregrasp.pose.position.y,
+                pregrasp.pose.position.z,
+            ],
+            [0.043, -0.456, 0.789],
+            atol=1e-7,
+        )
+        self.assertEqual(pregrasp.pose.orientation, output.pose.orientation)
         self.assertEqual(len(node._marker_publisher.messages), 1)
         markers = node._marker_publisher.messages[0].markers
         self.assertEqual(len(markers), 7)
@@ -92,6 +109,13 @@ class BestGraspTcpNodeTest(unittest.TestCase):
             [marker.ns for marker in markers[1:]],
             ["anygrasp_grasp_axes"] * 3 + ["ag95_tcp_target_axes"] * 3,
         )
+        self.assertEqual(len(node._pregrasp_marker_publisher.messages), 1)
+        pregrasp_markers = node._pregrasp_marker_publisher.messages[0].markers
+        self.assertEqual(len(pregrasp_markers), 8)
+        self.assertEqual(pregrasp_markers[0].action, Marker.DELETEALL)
+        self.assertEqual(pregrasp_markers[-1].ns, "pregrasp_approach")
+        self.assertEqual(pregrasp_markers[-1].points[0], pregrasp.pose.position)
+        self.assertEqual(pregrasp_markers[-1].points[1], output.pose.position)
 
     def test_wrong_input_frame_warns_and_is_dropped_without_publication(self):
         node = make_node()
@@ -102,6 +126,8 @@ class BestGraspTcpNodeTest(unittest.TestCase):
         warning.assert_called_once()
         self.assertEqual(node._pose_publisher.messages, [])
         self.assertEqual(node._marker_publisher.messages, [])
+        self.assertEqual(node._pregrasp_publisher.messages, [])
+        self.assertEqual(node._pregrasp_marker_publisher.messages, [])
 
     def test_zero_length_input_orientation_warns_and_is_dropped(self):
         node = make_node()
@@ -114,6 +140,28 @@ class BestGraspTcpNodeTest(unittest.TestCase):
         warning.assert_called_once()
         self.assertEqual(node._pose_publisher.messages, [])
         self.assertEqual(node._marker_publisher.messages, [])
+        self.assertEqual(node._pregrasp_publisher.messages, [])
+        self.assertEqual(node._pregrasp_marker_publisher.messages, [])
+
+    def test_constructor_rejects_nonfinite_or_nonpositive_pregrasp_distance(self):
+        for distance in (np.nan, np.inf, -np.inf, -0.01, 0.0):
+            with self.subTest(distance=distance), patch.object(
+                NODE.rospy, "init_node"
+            ), patch.object(
+                NODE.rospy, "Publisher"
+            ), patch.object(
+                NODE.rospy, "Subscriber"
+            ), patch.object(
+                NODE.rospy, "loginfo"
+            ), patch.object(
+                NODE.rospy,
+                "get_param",
+                side_effect=lambda name, default: (
+                    distance if name == "~pregrasp_distance" else default
+                ),
+            ):
+                with self.assertRaisesRegex(ValueError, "pregrasp_distance"):
+                    NODE.BestGraspTcpNode()
 
 
 if __name__ == "__main__":

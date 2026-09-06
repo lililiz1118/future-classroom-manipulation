@@ -2,6 +2,9 @@
   <arg name="input_topic" default="/anygrasp/best_grasp_base"/>
   <arg name="output_topic" default="/anygrasp/best_grasp_tcp"/>
   <arg name="marker_topic" default="/anygrasp/best_grasp_tcp_markers"/>
+  <arg name="pregrasp_topic" default="/anygrasp/pre_grasp_tcp"/>
+  <arg name="pregrasp_marker_topic" default="/anygrasp/pre_grasp_markers"/>
+  <arg name="pregrasp_distance" default="0.08"/>
   <arg name="base_frame" default="ur_arm_base_link"/>
 
   <!-- Debug conversion only: no robot, MoveIt, IK, gripper, or control launch. -->
@@ -13,5 +16,8 @@
     <param name="output_topic" value="$(arg output_topic)"/>
     <param name="marker_topic" value="$(arg marker_topic)"/>
     <param name="base_frame" value="$(arg base_frame)"/>
+    <param name="pregrasp_topic" value="$(arg pregrasp_topic)"/>
+    <param name="pregrasp_marker_topic" value="$(arg pregrasp_marker_topic)"/>
+    <param name="pregrasp_distance" value="$(arg pregrasp_distance)"/>
   </node>
 </launch>

@@ -55,6 +55,9 @@ class BestGraspTcpContractTest(unittest.TestCase):
                 "output_topic": "$(arg output_topic)",
                 "marker_topic": "$(arg marker_topic)",
                 "base_frame": "$(arg base_frame)",
+                "pregrasp_topic": "$(arg pregrasp_topic)",
+                "pregrasp_marker_topic": "$(arg pregrasp_marker_topic)",
+                "pregrasp_distance": "$(arg pregrasp_distance)",
             },
         )
 
