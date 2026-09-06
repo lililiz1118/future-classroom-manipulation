@@ -1,0 +1,17 @@
+<launch>
+  <arg name="input_topic" default="/anygrasp/best_grasp_base"/>
+  <arg name="output_topic" default="/anygrasp/best_grasp_tcp"/>
+  <arg name="marker_topic" default="/anygrasp/best_grasp_tcp_markers"/>
+  <arg name="base_frame" default="ur_arm_base_link"/>
+
+  <!-- Debug conversion only: no robot, MoveIt, IK, gripper, or control launch. -->
+  <node pkg="anygrasp_ros"
+        type="best_grasp_tcp_node.py"
+        name="best_grasp_tcp_node"
+        output="screen">
+    <param name="input_topic" value="$(arg input_topic)"/>
+    <param name="output_topic" value="$(arg output_topic)"/>
+    <param name="marker_topic" value="$(arg marker_topic)"/>
+    <param name="base_frame" value="$(arg base_frame)"/>
+  </node>
+</launch>

@@ -17,6 +17,7 @@ catkin_package(
 
 install(PROGRAMS
   scripts/anygrasp_d405_node.py
+  scripts/best_grasp_tcp_node.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 
